@@ -10,6 +10,8 @@ import {
   Gauge,
   Cookie,
   Check,
+  Lock,
+  Unlock,
 } from "lucide-react";
 import { api, type CookieFile, type Settings as TSettings } from "../lib/api";
 import ContentToggles from "../components/ContentToggles";
@@ -126,6 +128,27 @@ export default function Settings() {
         </button>
         {uploadError && <p className="mt-2 text-sm text-red-400">{uploadError}</p>}
 
+        <div
+          className={`mt-3 flex items-center gap-2 rounded-lg border px-3 py-2 text-xs ${
+            settings.cookie_encryption
+              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+              : "border-ink-700 bg-ink-900/50 text-neutral-400"
+          }`}
+        >
+          {settings.cookie_encryption ? (
+            <>
+              <Lock className="h-3.5 w-3.5 shrink-0" />
+              Encryption active (AES-256-GCM). New uploads are encrypted at rest.
+            </>
+          ) : (
+            <>
+              <Unlock className="h-3.5 w-3.5 shrink-0" />
+              Not encrypted. Set the COOKIE_ENCRYPTION_KEY container variable to
+              encrypt cookies at rest.
+            </>
+          )}
+        </div>
+
         <div className="mt-4 space-y-2">
           {cookies.length === 0 ? (
             <p className="text-sm text-neutral-500">No cookies uploaded yet.</p>
@@ -140,7 +163,10 @@ export default function Settings() {
                 >
                   <Icon className={`h-5 w-5 shrink-0 ${st.cls}`} />
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-semibold">
+                    <div className="flex items-center gap-1.5 truncate text-sm font-semibold">
+                      {c.encrypted && (
+                        <Lock className="h-3 w-3 shrink-0 text-emerald-400" />
+                      )}
                       {c.label || c.original_name}
                     </div>
                     <div className="text-xs text-neutral-500">

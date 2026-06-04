@@ -86,6 +86,7 @@ class CookieFile(SQLModel, table=True):
     label: Optional[str] = None
     uploaded_at: datetime = Field(default_factory=_utcnow)
     enabled: bool = True
+    encrypted: bool = False
     last_used_at: Optional[datetime] = None
     # unknown | ok | rate_limited | invalid
     status: str = "unknown"

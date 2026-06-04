@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
-from ..core import config
+from ..core import config, crypto
 from ..db.database import get_session
 from ..db.models import CookieFile
 
@@ -44,7 +44,9 @@ async def upload_cookie(
     # Unique stored name so uploads never overwrite earlier cookies (we cycle them).
     stored = f"cookies_{secrets.token_hex(6)}.txt"
     path = config.COOKIES_DIR / stored
-    path.write_text(text, encoding="utf-8")
+    # Encrypt at rest if COOKIE_ENCRYPTION_KEY is configured (else stored plain).
+    blob = crypto.encrypt(text.encode("utf-8"))
+    path.write_bytes(blob)
     try:
         path.chmod(0o600)
     except OSError:
@@ -54,6 +56,7 @@ async def upload_cookie(
         filename=stored,
         original_name=file.filename or stored,
         label=label,
+        encrypted=crypto.is_encrypted(blob),
     )
     session.add(cookie)
     session.commit()

@@ -81,7 +81,25 @@ Reliable archiving needs a logged-in session.
 | `DOWNLOAD_THREADS` | `4` | Parallel download workers. Higher = faster, but more requests = higher ban risk. Also adjustable live in Settings. |
 | `MAX_CONCURRENT_JOBS` | `1` | How many account scrapes run at once. Keep at `1`. |
 | `RATE_LIMIT_MIN` / `RATE_LIMIT_MAX` | `2.0` / `5.0` | Randomized delay (s) between API page requests. Adjustable in Settings. |
+| `COOKIE_ENCRYPTION_KEY` | _(unset)_ | If set, cookie files are encrypted at rest with AES-256-GCM. Unset = plaintext (file-perms only). See below. |
 | `LOG_LEVEL` | `INFO` | `INFO` or `DEBUG`. |
+
+### Encrypting cookies at rest
+
+Cookie files contain your Instagram `sessionid` (account-takeover material). By
+default they're stored with `0600` permissions only. Set `COOKIE_ENCRYPTION_KEY`
+to encrypt them at rest with **AES-256-GCM**. Because the key lives in the
+container's environment — **not** in the `/config` appdata share — a leaked or
+backed-up appdata folder alone cannot decrypt them.
+
+Generate a key:
+```bash
+python -c "import secrets,base64;print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())"
+```
+Notes: encryption protects against backup/snapshot/share leaks, **not** full root
+compromise of the host (whoever can read the running container can read the key).
+If you change or remove the key later, previously-encrypted cookies can no longer
+be decrypted and will be flagged invalid — just re-upload them.
 
 ### Why threads, not processes?
 Downloading is **network/IO-bound**: the workers spend their time waiting on the

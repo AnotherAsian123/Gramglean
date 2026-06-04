@@ -41,7 +41,7 @@ from instaloader.exceptions import (
 )
 from sqlmodel import select
 
-from ..core import config
+from ..core import config, crypto
 from ..core.logging_setup import (
     job_error_log_path,
     job_log_path,
@@ -231,6 +231,7 @@ class ScrapeRunner:
         self.existing = {(sc, ci) for sc, ci in rows}
 
     def _build_loader(self, cookie_file_path: Path) -> instaloader.Instaloader:
+        import tempfile
         from http.cookiejar import MozillaCookieJar
 
         loader = instaloader.Instaloader(
@@ -243,8 +244,24 @@ class ScrapeRunner:
             request_timeout=config.REQUEST_TIMEOUT,
             user_agent=config.USER_AGENT,
         )
-        jar = MozillaCookieJar(str(cookie_file_path))
-        jar.load(ignore_discard=True, ignore_expires=True)
+        # Decrypt (if encrypted) to a short-lived temp file, since MozillaCookieJar
+        # loads from a path. The temp file is removed immediately after loading.
+        try:
+            text = crypto.decrypt(cookie_file_path.read_bytes()).decode("utf-8")
+        except Exception as exc:  # noqa: BLE001
+            raise CookieInvalid(
+                f"could not decrypt cookie (COOKIE_ENCRYPTION_KEY missing or changed): {exc}"
+            ) from exc
+        tmp = tempfile.NamedTemporaryFile(
+            "w", suffix=".txt", delete=False, encoding="utf-8"
+        )
+        try:
+            tmp.write(text)
+            tmp.close()
+            jar = MozillaCookieJar(tmp.name)
+            jar.load(ignore_discard=True, ignore_expires=True)
+        finally:
+            os.unlink(tmp.name)
         loader.context._session.cookies.update(jar)
         try:
             username = loader.test_login()

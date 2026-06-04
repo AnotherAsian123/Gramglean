@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlmodel import Session
 
-from ..core import config
+from ..core import config, crypto
 from ..core.settings_service import get_effective, update_settings
 from ..db.database import get_session
 from ..jobs.cookies import count_enabled
@@ -26,6 +26,7 @@ def _payload(session: Session) -> dict:
     eff = get_effective(session)
     data = eff.as_dict()
     data["cookies_available"] = count_enabled()
+    data["cookie_encryption"] = crypto.encryption_enabled()
     # Surface which knobs come from the environment so the UI can hint at it.
     data["env_defaults"] = {
         "download_threads": config.DOWNLOAD_THREADS,

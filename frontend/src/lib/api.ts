@@ -57,6 +57,7 @@ export interface CookieFile {
   label: string | null;
   uploaded_at: string;
   enabled: boolean;
+  encrypted: boolean;
   last_used_at: string | null;
   status: "unknown" | "ok" | "rate_limited" | "invalid";
   last_error: string | null;
@@ -71,6 +72,7 @@ export interface Settings {
   default_include_reels: boolean;
   default_include_stories: boolean;
   cookies_available: number;
+  cookie_encryption: boolean;
   env_defaults: {
     download_threads: number;
     max_concurrent_jobs: number;

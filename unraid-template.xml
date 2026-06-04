@@ -36,4 +36,5 @@
   <Config Name="Rate limit min (s)" Target="RATE_LIMIT_MIN" Default="2.0" Mode="" Description="Minimum randomized delay between Instagram API requests." Type="Variable" Display="advanced" Required="false" Mask="false">2.0</Config>
   <Config Name="Rate limit max (s)" Target="RATE_LIMIT_MAX" Default="5.0" Mode="" Description="Maximum randomized delay between Instagram API requests." Type="Variable" Display="advanced" Required="false" Mask="false">5.0</Config>
   <Config Name="Log level" Target="LOG_LEVEL" Default="INFO" Mode="" Description="INFO or DEBUG." Type="Variable" Display="advanced" Required="false" Mask="false">INFO</Config>
+  <Config Name="Cookie encryption key" Target="COOKIE_ENCRYPTION_KEY" Default="" Mode="" Description="Optional. Encrypts cookie files at rest (AES-256-GCM). Leave blank for plaintext. Generate with: python -c &quot;import secrets,base64;print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())&quot;" Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
 </Container>

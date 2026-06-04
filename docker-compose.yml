@@ -20,6 +20,10 @@ services:
       - RATE_LIMIT_MIN=2.0
       - RATE_LIMIT_MAX=5.0
       - LOG_LEVEL=INFO
+      # Encrypt cookie files at rest with AES-256-GCM. Leave unset to store them
+      # as plaintext (file-permission protected only). Generate a key with:
+      #   python -c "import secrets,base64;print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())"
+      # - COOKIE_ENCRYPTION_KEY=paste-your-generated-key-here
     volumes:
       - ./data/config:/config
       - ./data/downloads:/downloads
