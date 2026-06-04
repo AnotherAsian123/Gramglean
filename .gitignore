@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Node
+node_modules/
+frontend/dist/
+npm-debug.log*
+
+# App data / runtime
+data/
+*.db
+*.db-wal
+*.db-shm
+cookies/
+*.cookies.txt
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

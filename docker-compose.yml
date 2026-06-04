@@ -1,0 +1,26 @@
+services:
+  unraiders:
+    build: .
+    # Or use the prebuilt image instead of building:
+    # image: ghcr.io/OWNER/unraiders-of-the-lost-sta:latest
+    container_name: unraiders
+    ports:
+      - "8080:8080"
+    environment:
+      - PUID=99
+      - PGID=100
+      - UMASK=022
+      - TZ=Etc/UTC
+      - PORT=8080
+      # Parallel download workers (IO-bound; higher = faster but riskier).
+      - DOWNLOAD_THREADS=4
+      # How many account scrapes may run at once (keep at 1 to avoid bans).
+      - MAX_CONCURRENT_JOBS=1
+      # Randomized delay (seconds) between Instagram API page requests.
+      - RATE_LIMIT_MIN=2.0
+      - RATE_LIMIT_MAX=5.0
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./data/config:/config
+      - ./data/downloads:/downloads
+    restart: unless-stopped

@@ -1,0 +1,4 @@
+# Shell scripts must keep LF endings or the container entrypoint won't run.
+*.sh text eol=lf
+docker/entrypoint.sh text eol=lf
+* text=auto
