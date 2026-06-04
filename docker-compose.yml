@@ -2,7 +2,7 @@ services:
   unraiders:
     build: .
     # Or use the prebuilt image instead of building:
-    # image: ghcr.io/OWNER/unraiders-of-the-lost-sta:latest
+    # image: ghcr.io/anotherasian123/unraiders-of-the-lost-sta:latest
     container_name: unraiders
     ports:
       - "8080:8080"

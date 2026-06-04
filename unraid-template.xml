@@ -1,24 +1,24 @@
 <?xml version="1.0"?>
 <!--
   Unraid Community Apps template.
-  Replace OWNER with your GitHub username/org once the image is published to GHCR.
+  Replace AnotherAsian123 with your GitHub username/org once the image is published to GHCR.
   In Unraid: Docker tab -> Add Container -> Template: paste the raw URL of this
   file, or drop it in /boot/config/plugins/dockerMan/templates-user/.
 -->
 <Container version="2">
   <Name>UnRaiders-of-the-lost-Sta</Name>
-  <Repository>ghcr.io/OWNER/unraiders-of-the-lost-sta:latest</Repository>
-  <Registry>https://github.com/OWNER/UnRaiders-of-the-lost-Sta/pkgs/container/unraiders-of-the-lost-sta</Registry>
+  <Repository>ghcr.io/anotherasian123/unraiders-of-the-lost-sta:latest</Repository>
+  <Registry>https://github.com/AnotherAsian123/UnRaiders-of-the-lost-Sta/pkgs/container/unraiders-of-the-lost-sta</Registry>
   <Network>bridge</Network>
   <MyIP/>
   <Shell>bash</Shell>
   <Privileged>false</Privileged>
-  <Support>https://github.com/OWNER/UnRaiders-of-the-lost-Sta/issues</Support>
-  <Project>https://github.com/OWNER/UnRaiders-of-the-lost-Sta</Project>
+  <Support>https://github.com/AnotherAsian123/UnRaiders-of-the-lost-Sta/issues</Support>
+  <Project>https://github.com/AnotherAsian123/UnRaiders-of-the-lost-Sta</Project>
   <Overview>Self-hosted Instagram archiver. Download full-resolution posts, carousels, reels and stories from any account, with incremental sync, multi-cookie rotation, configurable parallel downloads, and detailed per-resource error logs. Instagram-inspired web UI.</Overview>
   <Category>MediaApp:Photos Tools: Downloaders:</Category>
   <WebUI>http://[IP]:[PORT:8080]/</WebUI>
-  <Icon>https://raw.githubusercontent.com/OWNER/UnRaiders-of-the-lost-Sta/main/frontend/public/favicon.svg</Icon>
+  <Icon>https://raw.githubusercontent.com/AnotherAsian123/UnRaiders-of-the-lost-Sta/main/frontend/public/favicon.svg</Icon>
   <ExtraParams/>
   <PostArgs/>
   <DonateText/>

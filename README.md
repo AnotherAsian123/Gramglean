@@ -50,7 +50,7 @@ with an Instagram-inspired web UI.
 ### docker-compose
 
 ```bash
-git clone https://github.com/OWNER/UnRaiders-of-the-lost-Sta.git
+git clone https://github.com/AnotherAsian123/UnRaiders-of-the-lost-Sta.git
 cd UnRaiders-of-the-lost-Sta
 docker compose up -d --build
 # open http://localhost:8080
