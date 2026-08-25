@@ -1,129 +1,162 @@
 import { useEffect } from "react";
-import { AnimatePresence, motion } from "framer-motion";
-import { X, ChevronLeft, ChevronRight, Download, Calendar } from "lucide-react";
-import type { Media } from "../lib/api";
+import { motion } from "framer-motion";
+import { ChevronLeft, ChevronRight, Download, X } from "lucide-react";
 import { api } from "../lib/api";
+import type { Media } from "../lib/api";
+import { baseName, formatDateTime } from "../lib/format";
 
-export default function Lightbox({
-  items,
-  index,
-  onClose,
-  onNavigate,
-}: {
+interface LightboxProps {
   items: Media[];
-  index: number | null;
+  index: number;
   onClose: () => void;
-  onNavigate: (next: number) => void;
-}) {
-  const open = index !== null;
-  const media = open ? items[index!] : null;
+  onNavigate: (index: number) => void;
+}
+
+export default function Lightbox({ items, index, onClose, onNavigate }: LightboxProps) {
+  const media = items[index];
+  const canPrev = index > 0;
+  const canNext = index < items.length - 1;
 
   useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-      if (e.key === "ArrowRight" && index! < items.length - 1) onNavigate(index! + 1);
-      if (e.key === "ArrowLeft" && index! > 0) onNavigate(index! - 1);
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+      else if (event.key === "ArrowLeft" && canPrev) onNavigate(index - 1);
+      else if (event.key === "ArrowRight" && canNext) onNavigate(index + 1);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, index, items.length, onClose, onNavigate]);
+  }, [index, canPrev, canNext, onClose, onNavigate]);
+
+  useEffect(() => {
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, []);
+
+  const fileUrl = api.mediaFileUrl(media.id);
+  const alt = media.caption
+    ? media.caption.slice(0, 120)
+    : `Post by ${media.username ?? "unknown"}`;
 
   return (
-    <AnimatePresence>
-      {open && media && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm"
-          onClick={onClose}
-        >
-          <button
-            className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-white hover:bg-white/20"
-            onClick={onClose}
-            aria-label="Close"
-          >
-            <X className="h-6 w-6" />
-          </button>
-
-          {index! > 0 && (
-            <button
-              className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-white/10 p-2 text-white hover:bg-white/20 md:left-6"
-              onClick={(e) => {
-                e.stopPropagation();
-                onNavigate(index! - 1);
-              }}
-              aria-label="Previous"
-            >
-              <ChevronLeft className="h-7 w-7" />
-            </button>
-          )}
-          {index! < items.length - 1 && (
-            <button
-              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-white/10 p-2 text-white hover:bg-white/20 md:right-6"
-              onClick={(e) => {
-                e.stopPropagation();
-                onNavigate(index! + 1);
-              }}
-              aria-label="Next"
-            >
-              <ChevronRight className="h-7 w-7" />
-            </button>
-          )}
-
-          <motion.div
-            key={media.id}
-            initial={{ scale: 0.94, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0.94, opacity: 0 }}
-            transition={{ type: "spring", stiffness: 300, damping: 30 }}
-            className="flex max-h-[90vh] w-full max-w-4xl flex-col items-center px-4"
+    <motion.div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Media viewer"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.15 }}
+      className="fixed inset-0 z-50 flex flex-col bg-carbon-950/95 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      {/* Top bar */}
+      <div
+        className="flex items-center justify-between gap-3 px-4 py-3"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <span className="truncate text-sm text-thistle-300">
+          {media.username ? `@${media.username}` : "Unknown account"}
+          <span className="text-thistle-600">
+            {" "}
+            · {index + 1} / {items.length}
+          </span>
+        </span>
+        <div className="flex items-center gap-2">
+          <a
+            href={fileUrl}
+            download={baseName(media.file_path)}
             onClick={(e) => e.stopPropagation()}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-mauve-500/60 bg-carbon-700/80 px-3 py-1.5 text-sm text-thistle-200 transition-colors hover:border-rose-400/70 hover:text-thistle-100"
           >
-            {media.media_type === "video" ? (
-              <video
-                src={api.mediaFileUrl(media.id)}
-                controls
-                autoPlay
-                className="max-h-[78vh] w-auto rounded-xl"
-              />
-            ) : (
-              <img
-                src={api.mediaFileUrl(media.id)}
-                alt={media.shortcode}
-                className="max-h-[78vh] w-auto rounded-xl object-contain"
-              />
-            )}
+            <Download className="h-4 w-4" aria-hidden="true" />
+            Save
+          </a>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close viewer"
+            className="rounded-lg p-2 text-thistle-300 transition-colors hover:bg-mauve-800/60 hover:text-thistle-100"
+          >
+            <X className="h-5 w-5" aria-hidden="true" />
+          </button>
+        </div>
+      </div>
 
-            <div className="mt-3 flex w-full items-center justify-between gap-3 text-sm text-neutral-300">
-              <div className="flex items-center gap-2 truncate">
-                <span className="rounded-md bg-white/10 px-2 py-0.5 text-xs uppercase tracking-wide">
-                  {media.source}
-                </span>
-                {media.taken_at && (
-                  <span className="flex items-center gap-1 text-neutral-400">
-                    <Calendar className="h-3.5 w-3.5" />
-                    {new Date(media.taken_at).toLocaleDateString()}
-                  </span>
-                )}
-              </div>
-              <a
-                href={api.mediaFileUrl(media.id)}
-                download
-                className="flex items-center gap-1.5 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold hover:bg-white/20"
-              >
-                <Download className="h-4 w-4" /> Save
-              </a>
-            </div>
-            {media.caption && (
-              <p className="mt-2 max-h-24 w-full overflow-y-auto whitespace-pre-wrap text-sm text-neutral-400">
-                {media.caption}
-              </p>
-            )}
-          </motion.div>
+      {/* Media area */}
+      <div className="relative flex flex-1 items-center justify-center overflow-hidden px-2 sm:px-16">
+        {canPrev && (
+          <button
+            type="button"
+            aria-label="Previous item"
+            onClick={(e) => {
+              e.stopPropagation();
+              onNavigate(index - 1);
+            }}
+            className="absolute left-2 z-10 rounded-full bg-carbon-700/80 p-2 text-thistle-200 transition-colors hover:bg-mauve-700/80 sm:left-4"
+          >
+            <ChevronLeft className="h-6 w-6" aria-hidden="true" />
+          </button>
+        )}
+
+        <motion.div
+          key={media.id}
+          initial={{ opacity: 0.3, scale: 0.97 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ type: "spring", stiffness: 320, damping: 30 }}
+          drag="x"
+          dragConstraints={{ left: 0, right: 0 }}
+          dragElastic={0.25}
+          onDragEnd={(_event, info) => {
+            if (info.offset.x < -80 && canNext) onNavigate(index + 1);
+            else if (info.offset.x > 80 && canPrev) onNavigate(index - 1);
+          }}
+          onClick={(e) => e.stopPropagation()}
+          className="flex max-h-full max-w-full items-center justify-center"
+        >
+          {media.media_type === "video" ? (
+            <video src={fileUrl} controls playsInline className="max-h-[72vh] max-w-full rounded-lg" />
+          ) : (
+            <img
+              src={fileUrl}
+              alt={alt}
+              draggable={false}
+              className="max-h-[72vh] max-w-full rounded-lg object-contain"
+            />
+          )}
         </motion.div>
-      )}
-    </AnimatePresence>
+
+        {canNext && (
+          <button
+            type="button"
+            aria-label="Next item"
+            onClick={(e) => {
+              e.stopPropagation();
+              onNavigate(index + 1);
+            }}
+            className="absolute right-2 z-10 rounded-full bg-carbon-700/80 p-2 text-thistle-200 transition-colors hover:bg-mauve-700/80 sm:right-4"
+          >
+            <ChevronRight className="h-6 w-6" aria-hidden="true" />
+          </button>
+        )}
+      </div>
+
+      {/* Caption footer */}
+      <div className="px-4 pb-5 pt-3" onClick={(e) => e.stopPropagation()}>
+        <div className="mx-auto max-w-2xl text-center">
+          {media.caption && (
+            <p className="mx-auto max-h-20 overflow-y-auto text-sm leading-relaxed text-thistle-300">
+              {media.caption}
+            </p>
+          )}
+          <p className="mt-1.5 text-xs text-thistle-600">
+            {media.username ? `@${media.username} · ` : ""}
+            {formatDateTime(media.taken_at ?? media.downloaded_at)}
+          </p>
+        </div>
+      </div>
+    </motion.div>
   );
 }

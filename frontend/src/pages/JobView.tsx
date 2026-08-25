@@ -1,166 +1,300 @@
-import { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link as RouterLink, useParams } from "react-router-dom";
 import { motion } from "framer-motion";
-import { ArrowLeft, Ban, FileWarning, ScrollText, Images } from "lucide-react";
-import { api, type Job } from "../lib/api";
+import { AlertTriangle, ArrowLeft, Loader2, RefreshCw, XCircle } from "lucide-react";
+import { api, errorMessage, isJobActive } from "../lib/api";
 import { useJobSocket } from "../lib/useJobSocket";
-import StatusBadge from "../components/StatusBadge";
 import { timeAgo } from "../lib/format";
+import { Page } from "../components/Layout";
+import StatusBadge from "../components/StatusBadge";
+import { useToast } from "../components/Toast";
 
-function Stat({ label, value, color }: { label: string; value: number; color: string }) {
-  return (
-    <div className="card p-4 text-center">
-      <div className={`text-2xl font-extrabold ${color}`}>{value}</div>
-      <div className="text-[11px] uppercase tracking-widest text-neutral-500">{label}</div>
-    </div>
-  );
-}
+type Tab = "links" | "log" | "failures";
 
 export default function JobView() {
   const { id } = useParams();
-  const jobId = id ? Number(id) : null;
-  const [job, setJob] = useState<Job | null>(null);
-  const { progress, logs } = useJobSocket(jobId);
-  const [tab, setTab] = useState<"activity" | "errors">("activity");
-  const [errorLines, setErrorLines] = useState<string[]>([]);
+  const jobId = id !== undefined && /^\d+$/.test(id) ? Number(id) : null;
+  const { job, links, connection } = useJobSocket(jobId);
+  const [tab, setTab] = useState<Tab>("links");
+  const [logLines, setLogLines] = useState<string[]>([]);
+  const [failureLines, setFailureLines] = useState<string[]>([]);
+  const [refresh, setRefresh] = useState(0);
+  const [cancelling, setCancelling] = useState(false);
+  const { toast } = useToast();
+  const status = job?.status;
 
+  // Failures are fetched eagerly so the tab label can show a count; refetched
+  // on each status change and on manual refresh.
   useEffect(() => {
-    if (jobId == null) return;
-    api.getJob(jobId).then(setJob).catch(() => {});
-  }, [jobId]);
+    if (jobId === null || status === undefined) return;
+    let stale = false;
+    api
+      .getJobErrors(jobId)
+      .then((r) => {
+        if (!stale) setFailureLines(r.lines);
+      })
+      .catch((err: unknown) => {
+        if (!stale) toast(errorMessage(err));
+      });
+    return () => {
+      stale = true;
+    };
+  }, [jobId, status, refresh, toast]);
 
-  // Merge live progress over the fetched job snapshot.
-  const view = useMemo(() => {
-    if (!job) return null;
-    return progress ? { ...job, ...progress } : job;
-  }, [job, progress]);
-
+  // The activity log is only fetched while its tab is open.
   useEffect(() => {
-    if (jobId == null) return;
-    if (tab === "errors") {
-      api.getJobErrors(jobId).then((r) => setErrorLines(r.lines)).catch(() => {});
+    if (jobId === null || tab !== "log" || status === undefined) return;
+    let stale = false;
+    api
+      .getJobLog(jobId)
+      .then((r) => {
+        if (!stale) setLogLines(r.lines);
+      })
+      .catch((err: unknown) => {
+        if (!stale) toast(errorMessage(err));
+      });
+    return () => {
+      stale = true;
+    };
+  }, [jobId, tab, status, refresh, toast]);
+
+  const handleCancel = async () => {
+    if (jobId === null) return;
+    setCancelling(true);
+    try {
+      await api.cancelJob(jobId);
+      toast("Cancellation requested.", "info");
+    } catch (err) {
+      toast(errorMessage(err));
+    } finally {
+      setCancelling(false);
     }
-  }, [tab, jobId, view?.failed, view?.status]);
+  };
 
-  if (!view) {
-    return <div className="h-40 skeleton rounded-2xl" />;
+  if (jobId === null) {
+    return (
+      <Page>
+        <p className="rounded-xl border border-mauve-700/60 px-4 py-8 text-center text-sm text-thistle-400">
+          That job doesn't exist.{" "}
+          <RouterLink to="/" className="text-thistle-200 underline underline-offset-2">
+            Back to Home
+          </RouterLink>
+        </p>
+      </Page>
+    );
   }
 
-  const active = view.status === "running" || view.status === "queued";
-  const pct =
-    view.total > 0 ? Math.round(((view.downloaded + view.failed) / view.total) * 100) : 0;
+  const processed = job ? job.downloaded + job.skipped + job.failed : 0;
+  const percent = job && job.total > 0 ? Math.round((processed / job.total) * 100) : 0;
+  const segmentWidth = (count: number) =>
+    job && job.total > 0 ? `${(count / job.total) * 100}%` : "0%";
 
-  async function cancel() {
-    if (jobId == null) return;
-    await api.cancelJob(jobId).catch(() => {});
-  }
+  const stats = job
+    ? [
+        { label: "Total", value: job.total, className: "text-thistle-100" },
+        { label: "Downloaded", value: job.downloaded, className: "text-thistle-100" },
+        { label: "Skipped", value: job.skipped, className: "text-thistle-300" },
+        {
+          label: "Failed",
+          value: job.failed,
+          className: job.failed > 0 ? "text-mahogany-300" : "text-thistle-100",
+        },
+      ]
+    : [];
 
   return (
-    <div className="space-y-6">
-      <Link to="/" className="inline-flex items-center gap-1.5 text-sm text-neutral-400 hover:text-neutral-200">
-        <ArrowLeft className="h-4 w-4" /> Dashboard
-      </Link>
-
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-extrabold">@{view.username}</h1>
-          <p className="text-xs text-neutral-500">
-            started {timeAgo(view.started_at ?? view.created_at)}
-            {view.cookie_used && ` · cookie: ${view.cookie_used}`}
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <StatusBadge status={view.status} />
-          {active && (
-            <button className="btn-ghost text-red-400" onClick={cancel}>
-              <Ban className="h-4 w-4" /> Cancel
-            </button>
-          )}
-          {!active && (
-            <Link to={`/gallery?account=${view.account_id}`} className="btn-primary">
-              <Images className="h-4 w-4" /> View gallery
-            </Link>
-          )}
-        </div>
-      </div>
-
-      {/* Progress */}
-      <div className="card p-5">
-        <div className="mb-2 flex items-center justify-between text-sm">
-          <span className="font-semibold">
-            {view.total === 0 && active
-              ? "Enumerating account…"
-              : `${view.downloaded + view.failed} / ${view.total}`}
-          </span>
-          <span className="text-neutral-400">{view.total > 0 ? `${pct}%` : ""}</span>
-        </div>
-        <div className="h-2.5 w-full overflow-hidden rounded-full bg-ink-800">
-          {view.total === 0 && active ? (
-            <div className="ig-gradient h-full w-1/3 animate-pulse rounded-full" />
-          ) : (
-            <motion.div
-              className="ig-gradient h-full rounded-full"
-              animate={{ width: `${pct}%` }}
-              transition={{ ease: "easeOut", duration: 0.4 }}
+    <Page>
+      {/* Header */}
+      <div className="mb-2 flex flex-wrap items-center gap-3">
+        <RouterLink
+          to="/"
+          aria-label="Back to Home"
+          className="rounded-lg p-1.5 text-thistle-400 transition-colors hover:bg-mauve-800/50 hover:text-thistle-100"
+        >
+          <ArrowLeft className="h-5 w-5" aria-hidden="true" />
+        </RouterLink>
+        <h1 className="text-2xl font-semibold text-thistle-100">Job #{jobId}</h1>
+        {job && <StatusBadge status={job.status} />}
+        {job && isJobActive(job.status) && (
+          <span className="flex items-center gap-1.5 text-xs text-thistle-500">
+            <span
+              aria-hidden="true"
+              className={`h-1.5 w-1.5 rounded-full ${
+                connection === "live" ? "bg-thistle-300" : "bg-rose-400"
+              } ${connection === "connecting" ? "animate-pulse" : ""}`}
             />
-          )}
-        </div>
-        <div className="mt-4 grid grid-cols-4 gap-3">
-          <Stat label="Downloaded" value={view.downloaded} color="text-emerald-400" />
-          <Stat label="Skipped" value={view.skipped} color="text-neutral-300" />
-          <Stat label="Failed" value={view.failed} color="text-red-400" />
-          <Stat label="Total" value={view.total} color="text-ig-pink" />
-        </div>
-        {view.error && (
-          <div className="mt-4 flex items-start gap-2 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-300">
-            <FileWarning className="mt-0.5 h-4 w-4 shrink-0" />
-            <span>{view.error}</span>
-          </div>
+            {connection === "live"
+              ? "Live"
+              : connection === "polling"
+                ? "Auto-refresh"
+                : "Connecting…"}
+          </span>
+        )}
+        <span className="flex-1" />
+        {job && isJobActive(job.status) && (
+          <button
+            type="button"
+            onClick={() => void handleCancel()}
+            disabled={cancelling}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-mahogany-400/60 bg-mahogany-700/40 px-3.5 py-1.5 text-sm font-medium text-mahogany-300 transition-colors hover:bg-mahogany-600/50 hover:text-thistle-100 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <XCircle className="h-4 w-4" aria-hidden="true" />
+            {cancelling ? "Cancelling…" : "Cancel job"}
+          </button>
         )}
       </div>
 
-      {/* Logs */}
-      <div className="card overflow-hidden">
-        <div className="flex border-b border-ink-700 text-sm">
-          <button
-            className={`flex items-center gap-2 px-4 py-3 font-semibold ${
-              tab === "activity" ? "text-ig-pink" : "text-neutral-400"
-            }`}
-            onClick={() => setTab("activity")}
-          >
-            <ScrollText className="h-4 w-4" /> Activity
-          </button>
-          <button
-            className={`flex items-center gap-2 px-4 py-3 font-semibold ${
-              tab === "errors" ? "text-ig-pink" : "text-neutral-400"
-            }`}
-            onClick={() => setTab("errors")}
-          >
-            <FileWarning className="h-4 w-4" /> Failures ({view.failed})
-          </button>
+      {job && (
+        <p className="mb-6 pl-11 text-xs text-thistle-500">
+          Created {timeAgo(job.created_at)}
+          {job.cookie_used ? ` · cookie: ${job.cookie_used}` : ""}
+        </p>
+      )}
+
+      {!job && (
+        <div className="flex justify-center py-16">
+          <Loader2 className="h-7 w-7 animate-spin text-thistle-500" aria-label="Loading job" />
         </div>
-        <div className="max-h-80 overflow-y-auto bg-ink-950/60 p-4 font-mono text-xs leading-relaxed">
-          {tab === "activity" ? (
-            logs.length === 0 ? (
-              <p className="text-neutral-600">Waiting for activity…</p>
-            ) : (
-              logs.map((l, i) => (
-                <div key={i} className="text-neutral-300">
-                  <span className="text-neutral-600">·</span> {l.message}
-                </div>
-              ))
-            )
-          ) : errorLines.length === 0 ? (
-            <p className="text-neutral-600">No failures recorded for this job.</p>
+      )}
+
+      {job?.error && (
+        <div className="mb-6 flex items-start gap-3 rounded-xl border border-mahogany-400/60 bg-mahogany-800/50 px-4 py-3.5">
+          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-mahogany-300" aria-hidden="true" />
+          <div>
+            <p className="text-sm font-medium text-thistle-100">This job hit a problem</p>
+            <p className="mt-0.5 text-sm text-thistle-300">{job.error}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Progress */}
+      {job && (
+        <div className="mb-6 rounded-xl border border-mauve-800/60 bg-carbon-700/40 p-5">
+          <div className="mb-3 flex items-center justify-between text-sm">
+            <span className="text-thistle-300">
+              {processed} of {job.total} processed
+            </span>
+            <span className="text-thistle-500">{percent}%</span>
+          </div>
+          {job.status === "running" && job.total === 0 ? (
+            <div className="h-2.5 w-full animate-pulse rounded-full bg-mauve-500" />
           ) : (
-            errorLines.map((line, i) => (
-              <div key={i} className="whitespace-pre-wrap break-all text-red-300/90">
-                {line}
-              </div>
-            ))
+            <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-carbon-600">
+              <div
+                className="bg-rose-400 transition-all duration-500"
+                style={{ width: segmentWidth(job.downloaded) }}
+              />
+              <div
+                className="bg-mauve-400 transition-all duration-500"
+                style={{ width: segmentWidth(job.skipped) }}
+              />
+              <div
+                className="bg-mahogany-400 transition-all duration-500"
+                style={{ width: segmentWidth(job.failed) }}
+              />
+            </div>
           )}
+          <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {stats.map((stat) => (
+              <div
+                key={stat.label}
+                className="rounded-lg border border-mauve-800/50 bg-carbon-800/70 px-3 py-2.5"
+              >
+                <p className="text-xs text-thistle-500">{stat.label}</p>
+                <p className={`mt-0.5 text-xl font-semibold ${stat.className}`}>{stat.value}</p>
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
-    </div>
+      )}
+
+      {/* Tabs */}
+      {job && (
+        <>
+          <div className="mb-4 flex items-center gap-1 border-b border-mauve-800/60">
+            {(["links", "log", "failures"] as const).map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setTab(t)}
+                className={`relative px-4 py-2.5 text-sm font-medium transition-colors ${
+                  tab === t ? "text-thistle-100" : "text-thistle-500 hover:text-thistle-300"
+                }`}
+              >
+                {t === "links"
+                  ? `Links (${links.length})`
+                  : t === "log"
+                    ? "Activity log"
+                    : `Failures (${failureLines.length})`}
+                {tab === t && (
+                  <motion.span
+                    layoutId="job-tab-underline"
+                    className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-rose-400"
+                  />
+                )}
+              </button>
+            ))}
+            {tab !== "links" && (
+              <button
+                type="button"
+                aria-label="Refresh log data"
+                onClick={() => setRefresh((n) => n + 1)}
+                className="ml-auto rounded-lg p-2 text-thistle-500 transition-colors hover:bg-mauve-800/50 hover:text-thistle-200"
+              >
+                <RefreshCw className="h-4 w-4" aria-hidden="true" />
+              </button>
+            )}
+          </div>
+
+          {tab === "links" && (
+            <ul className="divide-y divide-mauve-800/60 rounded-xl border border-mauve-800/60 bg-carbon-700/40">
+              {links.map((link) => (
+                <li
+                  key={link.id}
+                  className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3"
+                >
+                  <span className="font-mono text-sm text-thistle-200">{link.shortcode}</span>
+                  {link.username && (
+                    <span className="text-sm text-thistle-400">@{link.username}</span>
+                  )}
+                  <span className="ml-auto flex items-center gap-3">
+                    {link.media_count > 0 && (
+                      <span className="text-xs text-thistle-500">
+                        {link.media_count} {link.media_count === 1 ? "item" : "items"}
+                      </span>
+                    )}
+                    <StatusBadge status={link.status} />
+                  </span>
+                  {link.error && (
+                    <p className="w-full text-xs text-mahogany-300">{link.error}</p>
+                  )}
+                </li>
+              ))}
+              {links.length === 0 && (
+                <li className="px-4 py-6 text-sm text-thistle-500">No links yet.</li>
+              )}
+            </ul>
+          )}
+
+          {tab === "log" && (
+            <div className="rounded-xl border border-mauve-800/60 bg-carbon-900/70 p-4">
+              <pre className="max-h-[28rem] overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed text-thistle-400">
+                {logLines.length > 0 ? logLines.join("\n") : "No activity yet."}
+              </pre>
+            </div>
+          )}
+
+          {tab === "failures" && (
+            <div className="rounded-xl border border-mahogany-500/40 bg-carbon-900/70 p-4">
+              <pre className="max-h-[28rem] overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed text-mahogany-300">
+                {failureLines.length > 0
+                  ? failureLines.join("\n")
+                  : "No failures — nice and clean."}
+              </pre>
+            </div>
+          )}
+        </>
+      )}
+    </Page>
   );
 }

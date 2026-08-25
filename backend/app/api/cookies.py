@@ -1,89 +1,85 @@
-import secrets
-from typing import List, Optional
+from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+import secrets
+
+from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from ..core import config, crypto
 from ..db.database import get_session
 from ..db.models import CookieFile
+from ..insta.cookies import parse_cookies_txt
 
-router = APIRouter(prefix="/api/cookies", tags=["cookies"])
-
-
-class CookieUpdate(BaseModel):
-    enabled: Optional[bool] = None
-    label: Optional[str] = None
+router = APIRouter()
 
 
-@router.get("")
-def list_cookies(session: Session = Depends(get_session)) -> List[CookieFile]:
+@router.get("/cookies", response_model=list[CookieFile])
+def list_cookies(session: Session = Depends(get_session)) -> list[CookieFile]:
     return session.exec(select(CookieFile).order_by(CookieFile.uploaded_at)).all()
 
 
-@router.post("", status_code=201)
-async def upload_cookie(
-    file: UploadFile = File(...),
-    label: Optional[str] = Form(None),
-    session: Session = Depends(get_session),
-) -> CookieFile:
+@router.post("/cookies", status_code=201, response_model=CookieFile)
+async def upload_cookie(file: UploadFile, session: Session = Depends(get_session)) -> CookieFile:
     raw = await file.read()
+    if len(raw) > 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Cookie file is too large.")
     try:
-        text = raw.decode("utf-8", errors="strict")
+        raw.decode("utf-8")
     except UnicodeDecodeError:
-        raise HTTPException(status_code=400, detail="Cookie file must be UTF-8 text.")
-    if "sessionid" not in text:
+        raise HTTPException(status_code=400, detail="Not a text file — export cookies in Netscape cookies.txt format.")
+    jar = parse_cookies_txt(raw)
+    if "sessionid" not in jar:
         raise HTTPException(
             status_code=400,
-            detail="That doesn't look like an Instagram cookies.txt "
-            "(no 'sessionid' cookie found). Export it while logged in.",
+            detail="No Instagram sessionid found — export cookies.txt while logged in to instagram.com.",
         )
 
-    config.ensure_dirs()
-    # Unique stored name so uploads never overwrite earlier cookies (we cycle them).
-    stored = f"cookies_{secrets.token_hex(6)}.txt"
-    path = config.COOKIES_DIR / stored
-    # Encrypt at rest if COOKIE_ENCRYPTION_KEY is configured (else stored plain).
-    blob = crypto.encrypt(text.encode("utf-8"))
-    path.write_bytes(blob)
+    filename = f"cookies_{secrets.token_hex(6)}.txt"
+    path = config.COOKIES_DIR / filename
+    path.write_bytes(crypto.encrypt(raw))
     try:
         path.chmod(0o600)
     except OSError:
         pass
 
-    cookie = CookieFile(
-        filename=stored,
-        original_name=file.filename or stored,
-        label=label,
-        encrypted=crypto.is_encrypted(blob),
+    row = CookieFile(
+        filename=filename,
+        original_name=file.filename or filename,
+        encrypted=crypto.encryption_enabled(),
     )
-    session.add(cookie)
+    session.add(row)
     session.commit()
-    session.refresh(cookie)
-    return cookie
+    session.refresh(row)
+    return row
 
 
-@router.patch("/{cookie_id}")
-def update_cookie(
-    cookie_id: int, payload: CookieUpdate, session: Session = Depends(get_session)
-) -> CookieFile:
-    cookie = session.get(CookieFile, cookie_id)
-    if not cookie:
-        raise HTTPException(status_code=404, detail="Cookie not found.")
-    for field, value in payload.model_dump(exclude_none=True).items():
-        setattr(cookie, field, value)
-    session.add(cookie)
+class CookiePatch(BaseModel):
+    enabled: bool | None = None
+    original_name: str | None = None
+
+
+@router.patch("/cookies/{cookie_id}", response_model=CookieFile)
+def patch_cookie(cookie_id: int, payload: CookiePatch, session: Session = Depends(get_session)) -> CookieFile:
+    row = session.get(CookieFile, cookie_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Cookie not found")
+    if payload.enabled is not None:
+        row.enabled = payload.enabled
+    if payload.original_name:
+        row.original_name = payload.original_name.strip()[:100]
+    session.add(row)
     session.commit()
-    session.refresh(cookie)
-    return cookie
+    session.refresh(row)
+    return row
 
 
-@router.delete("/{cookie_id}", status_code=204)
-def delete_cookie(cookie_id: int, session: Session = Depends(get_session)) -> None:
-    cookie = session.get(CookieFile, cookie_id)
-    if not cookie:
-        raise HTTPException(status_code=404, detail="Cookie not found.")
-    (config.COOKIES_DIR / cookie.filename).unlink(missing_ok=True)
-    session.delete(cookie)
+@router.delete("/cookies/{cookie_id}")
+def delete_cookie(cookie_id: int, session: Session = Depends(get_session)) -> dict:
+    row = session.get(CookieFile, cookie_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Cookie not found")
+    (config.COOKIES_DIR / row.filename).unlink(missing_ok=True)
+    session.delete(row)
     session.commit()
+    return {"ok": True}

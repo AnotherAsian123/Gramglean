@@ -1,9 +1,9 @@
 services:
-  unraiders:
+  gramglean:
     build: .
     # Or use the prebuilt image instead of building:
-    # image: ghcr.io/anotherasian123/unraiders-of-the-lost-sta:latest
-    container_name: unraiders
+    # image: ghcr.io/anotherasian123/gramglean:latest
+    container_name: gramglean
     ports:
       - "8080:8080"
     environment:
@@ -14,9 +14,9 @@ services:
       - PORT=8080
       # Parallel download workers (IO-bound; higher = faster but riskier).
       - DOWNLOAD_THREADS=4
-      # How many account scrapes may run at once (keep at 1 to avoid bans).
+      # How many jobs may run at once (keep at 1 to avoid bans).
       - MAX_CONCURRENT_JOBS=1
-      # Randomized delay (seconds) between Instagram API page requests.
+      # Randomized delay (seconds) between Instagram post fetches.
       - RATE_LIMIT_MIN=2.0
       - RATE_LIMIT_MAX=5.0
       - LOG_LEVEL=INFO

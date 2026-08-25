@@ -1,116 +1,116 @@
-from pathlib import Path
-from typing import List, Optional
+from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from collections import deque
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
+from ..core.logging_setup import job_error_log_path, job_log_path
 from ..db.database import get_session
-from ..db.models import Account, Job
+from ..db.models import Job, Link
+from ..insta.urls import InvalidLink, shortcode_from_url
 from ..jobs.manager import manager
-from .validation import normalize_username
 
-router = APIRouter(prefix="/api/jobs", tags=["jobs"])
+router = APIRouter()
 
 
 class JobCreate(BaseModel):
-    username: str
-    include_posts: bool = True
-    include_reels: bool = True
-    include_stories: bool = False
+    links: list[str]
 
 
-def _tail(path: Optional[str], limit: int) -> List[str]:
-    if not path:
+class RejectedLink(BaseModel):
+    url: str
+    reason: str
+
+
+class JobWithLinks(BaseModel):
+    job: Job
+    links: list[Link]
+    rejected: list[RejectedLink] = []
+
+
+def _tail(path: Path, limit: int) -> list[str]:
+    if not path.exists():
         return []
-    p = Path(path)
-    if not p.exists():
-        return []
-    with open(p, "r", encoding="utf-8", errors="replace") as fh:
-        lines = fh.read().splitlines()
-    return lines[-limit:]
+    with open(path, "r", encoding="utf-8", errors="replace") as fh:
+        return list(deque(fh, maxlen=limit))
 
 
-@router.post("", status_code=201)
-def create_job(payload: JobCreate, session: Session = Depends(get_session)) -> Job:
-    if not (payload.include_posts or payload.include_reels or payload.include_stories):
-        raise HTTPException(status_code=400, detail="Select at least one content type.")
-    username = normalize_username(payload.username)
-    account = session.exec(select(Account).where(Account.username == username)).first()
-    if account is None:
-        account = Account(
-            username=username,
-            include_posts=payload.include_posts,
-            include_reels=payload.include_reels,
-            include_stories=payload.include_stories,
-        )
-        session.add(account)
-        session.commit()
-        session.refresh(account)
+@router.post("/jobs", status_code=201, response_model=JobWithLinks)
+def create_job(payload: JobCreate, session: Session = Depends(get_session)) -> JobWithLinks:
+    seen: set[str] = set()
+    accepted: list[tuple[str, str]] = []  # (url, shortcode)
+    rejected: list[RejectedLink] = []
+    for raw in payload.links:
+        url = raw.strip()
+        if not url:
+            continue
+        try:
+            shortcode = shortcode_from_url(url)
+        except InvalidLink as exc:
+            rejected.append(RejectedLink(url=url, reason=str(exc)))
+            continue
+        if shortcode in seen:
+            rejected.append(RejectedLink(url=url, reason="Duplicate of another link in this batch."))
+            continue
+        seen.add(shortcode)
+        accepted.append((url, shortcode))
 
-    job = Job(
-        account_id=account.id,
-        username=username,
-        status="queued",
-        include_posts=payload.include_posts,
-        include_reels=payload.include_reels,
-        include_stories=payload.include_stories,
-    )
+    if not accepted:
+        detail = "No valid Instagram post links found."
+        if rejected:
+            detail += " " + "; ".join(r.reason for r in rejected[:3])
+        raise HTTPException(status_code=400, detail=detail)
+
+    job = Job(link_count=len(accepted))
     session.add(job)
     session.commit()
     session.refresh(job)
+    links = [Link(job_id=job.id, url=url, shortcode=code) for url, code in accepted]
+    for link in links:
+        session.add(link)
+    session.commit()
+    for link in links:
+        session.refresh(link)
+
     manager.submit(job.id)
-    return job
+    return JobWithLinks(job=job, links=links, rejected=rejected)
 
 
-@router.get("")
-def list_jobs(
-    limit: int = Query(50, le=200),
-    account_id: Optional[int] = None,
-    session: Session = Depends(get_session),
-) -> List[Job]:
-    query = select(Job).order_by(Job.created_at.desc()).limit(limit)
-    if account_id is not None:
-        query = select(Job).where(Job.account_id == account_id).order_by(
-            Job.created_at.desc()
-        ).limit(limit)
-    return session.exec(query).all()
+@router.get("/jobs", response_model=list[Job])
+def list_jobs(limit: int = 20, session: Session = Depends(get_session)) -> list[Job]:
+    limit = max(1, min(100, limit))
+    return session.exec(select(Job).order_by(Job.id.desc()).limit(limit)).all()
 
 
-@router.get("/{job_id}")
-def get_job(job_id: int, session: Session = Depends(get_session)) -> Job:
+@router.get("/jobs/{job_id}", response_model=JobWithLinks)
+def get_job(job_id: int, session: Session = Depends(get_session)) -> JobWithLinks:
     job = session.get(Job, job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found.")
-    return job
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    links = session.exec(select(Link).where(Link.job_id == job_id).order_by(Link.id)).all()
+    return JobWithLinks(job=job, links=list(links))
 
 
-@router.get("/{job_id}/log")
-def get_job_log(
-    job_id: int, limit: int = Query(500, le=5000), session: Session = Depends(get_session)
-) -> dict:
-    job = session.get(Job, job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found.")
-    return {"lines": _tail(job.log_path, limit)}
-
-
-@router.get("/{job_id}/errors")
-def get_job_errors(
-    job_id: int, limit: int = Query(1000, le=10000), session: Session = Depends(get_session)
-) -> dict:
-    job = session.get(Job, job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found.")
-    return {"lines": _tail(job.error_log_path, limit)}
-
-
-@router.post("/{job_id}/cancel")
+@router.post("/jobs/{job_id}/cancel")
 def cancel_job(job_id: int, session: Session = Depends(get_session)) -> dict:
     job = session.get(Job, job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found.")
-    if job.status not in ("queued", "running"):
-        raise HTTPException(status_code=409, detail=f"Job is already {job.status}.")
-    cancelled = manager.cancel(job_id)
-    return {"cancelled": cancelled}
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if not manager.cancel(job_id):
+        raise HTTPException(status_code=409, detail="Job is not running or queued")
+    return {"ok": True}
+
+
+@router.get("/jobs/{job_id}/log")
+def job_log(job_id: int, limit: int = 500) -> dict:
+    limit = max(1, min(5000, limit))
+    return {"lines": _tail(job_log_path(job_id), limit)}
+
+
+@router.get("/jobs/{job_id}/errors")
+def job_errors(job_id: int, limit: int = 2000) -> dict:
+    limit = max(1, min(10000, limit))
+    return {"lines": _tail(job_error_log_path(job_id), limit)}

@@ -1,303 +1,336 @@
-import { useEffect, useRef, useState } from "react";
-import {
-  Upload,
-  Trash2,
-  ShieldCheck,
-  ShieldAlert,
-  ShieldQuestion,
-  Clock4,
-  Cpu,
-  Gauge,
-  Cookie,
-  Check,
-  Lock,
-  Unlock,
-} from "lucide-react";
-import { api, type CookieFile, type Settings as TSettings } from "../lib/api";
-import ContentToggles from "../components/ContentToggles";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { Cookie, Loader2, Lock, Trash2, Upload } from "lucide-react";
+import { api, errorMessage } from "../lib/api";
+import type { CookieFile, Settings as SettingsData } from "../lib/api";
 import { timeAgo } from "../lib/format";
+import { Page } from "../components/Layout";
+import StatusBadge from "../components/StatusBadge";
+import { useToast } from "../components/Toast";
 
-const cookieStatus = {
-  ok: { icon: ShieldCheck, cls: "text-emerald-400", label: "OK" },
-  rate_limited: { icon: Clock4, cls: "text-amber-400", label: "Rate limited" },
-  invalid: { icon: ShieldAlert, cls: "text-red-400", label: "Invalid" },
-  unknown: { icon: ShieldQuestion, cls: "text-neutral-400", label: "Unused" },
-} as const;
-
-function Section({
-  icon: Icon,
-  title,
-  desc,
-  children,
-}: {
-  icon: typeof Cpu;
-  title: string;
-  desc: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="card p-5">
-      <div className="mb-4 flex items-start gap-3">
-        <div className="ig-gradient grid h-9 w-9 shrink-0 place-items-center rounded-lg">
-          <Icon className="h-5 w-5 text-white" />
-        </div>
-        <div>
-          <h2 className="font-bold">{title}</h2>
-          <p className="text-xs text-neutral-400">{desc}</p>
-        </div>
-      </div>
-      {children}
-    </section>
-  );
+interface SliderValues {
+  rate_limit_min: number;
+  rate_limit_max: number;
+  download_threads: number;
 }
 
 export default function Settings() {
-  const [settings, setSettings] = useState<TSettings | null>(null);
+  const [settings, setSettings] = useState<SettingsData | null>(null);
+  const [form, setForm] = useState<SliderValues | null>(null);
   const [cookies, setCookies] = useState<CookieFile[]>([]);
-  const [saved, setSaved] = useState(false);
-  const [uploadError, setUploadError] = useState<string | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const [cookiesLoaded, setCookiesLoaded] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const { toast } = useToast();
 
-  async function reload() {
-    const [s, c] = await Promise.all([api.getSettings(), api.listCookies()]);
-    setSettings(s);
-    setCookies(c);
-    applyTheme(s.theme);
-  }
+  // Refs so the commit callback always reads the latest values, even when the
+  // triggering pointer/key event fires in the same gesture as the last change.
+  const formRef = useRef<SliderValues | null>(null);
+  formRef.current = form;
+  const settingsRef = useRef<SettingsData | null>(null);
+  settingsRef.current = settings;
 
   useEffect(() => {
-    reload();
-  }, []);
+    let stale = false;
+    api
+      .getSettings()
+      .then((s) => {
+        if (stale) return;
+        setSettings(s);
+        setForm({
+          rate_limit_min: s.rate_limit_min,
+          rate_limit_max: s.rate_limit_max,
+          download_threads: s.download_threads,
+        });
+      })
+      .catch((err: unknown) => {
+        if (!stale) toast(errorMessage(err));
+      });
+    api
+      .listCookies()
+      .then((c) => {
+        if (!stale) setCookies(c);
+      })
+      .catch((err: unknown) => {
+        if (!stale) toast(errorMessage(err));
+      })
+      .finally(() => {
+        if (!stale) setCookiesLoaded(true);
+      });
+    return () => {
+      stale = true;
+    };
+  }, [toast]);
 
-  function applyTheme(theme: string) {
-    const root = document.documentElement;
-    root.classList.toggle("light", theme === "light");
-    root.classList.toggle("dark", theme !== "light");
-  }
-
-  async function patch(update: Partial<TSettings>) {
-    const next = await api.updateSettings(update);
-    setSettings(next);
-    if (update.theme) applyTheme(next.theme);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 1200);
-  }
-
-  async function onUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    setUploadError(null);
-    const file = e.target.files?.[0];
-    if (!file) return;
-    try {
-      await api.uploadCookie(file);
-      await reload();
-    } catch (err: any) {
-      setUploadError(String(err.message ?? err));
-    } finally {
-      if (fileRef.current) fileRef.current.value = "";
+  const commitSliders = useCallback(async () => {
+    const current = formRef.current;
+    const saved = settingsRef.current;
+    if (!current) return;
+    const payload: SliderValues = { ...current };
+    if (payload.rate_limit_max < payload.rate_limit_min) {
+      payload.rate_limit_max = payload.rate_limit_min;
     }
-  }
+    if (
+      saved &&
+      saved.rate_limit_min === payload.rate_limit_min &&
+      saved.rate_limit_max === payload.rate_limit_max &&
+      saved.download_threads === payload.download_threads
+    ) {
+      if (payload.rate_limit_max !== current.rate_limit_max) setForm(payload);
+      return;
+    }
+    try {
+      const updated = await api.updateSettings(payload);
+      setSettings(updated);
+      setForm({
+        rate_limit_min: updated.rate_limit_min,
+        rate_limit_max: updated.rate_limit_max,
+        download_threads: updated.download_threads,
+      });
+      toast("Settings saved.", "success");
+    } catch (err) {
+      toast(errorMessage(err));
+    }
+  }, [toast]);
 
-  if (!settings) return <div className="h-40 skeleton rounded-2xl" />;
+  const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setUploading(true);
+    try {
+      const created = await api.uploadCookie(file);
+      setCookies((prev) => [...prev, created]);
+      toast(`Uploaded ${created.original_name}.`, "success");
+    } catch (err) {
+      toast(errorMessage(err));
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const toggleCookie = async (cookie: CookieFile) => {
+    try {
+      const updated = await api.updateCookie(cookie.id, { enabled: !cookie.enabled });
+      setCookies((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
+    } catch (err) {
+      toast(errorMessage(err));
+    }
+  };
+
+  const deleteCookie = async (cookie: CookieFile) => {
+    const confirmed = window.confirm(
+      `Delete cookie file "${cookie.original_name}"? This cannot be undone.`,
+    );
+    if (!confirmed) return;
+    try {
+      await api.deleteCookie(cookie.id);
+      setCookies((prev) => prev.filter((c) => c.id !== cookie.id));
+      toast(`Deleted ${cookie.original_name}.`, "success");
+    } catch (err) {
+      toast(errorMessage(err));
+    }
+  };
 
   return (
-    <div className="space-y-5">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-extrabold">Settings</h1>
-        {saved && (
-          <span className="flex items-center gap-1 text-sm text-emerald-400">
-            <Check className="h-4 w-4" /> Saved
-          </span>
-        )}
-      </div>
+    <Page>
+      <h1 className="mb-8 text-2xl font-semibold text-thistle-100">Settings</h1>
 
       {/* Cookies */}
-      <Section
-        icon={Cookie}
-        title="Instagram cookies"
-        desc="Upload cookies.txt exported while logged in. Add several (e.g. from different accounts) — the scraper cycles through them to dodge rate limits. Uploads never overwrite existing cookies."
-      >
-        <input
-          ref={fileRef}
-          type="file"
-          accept=".txt,text/plain"
-          className="hidden"
-          onChange={onUpload}
-        />
-        <button className="btn-primary" onClick={() => fileRef.current?.click()}>
-          <Upload className="h-4 w-4" /> Upload cookies.txt
-        </button>
-        {uploadError && <p className="mt-2 text-sm text-red-400">{uploadError}</p>}
-
-        <div
-          className={`mt-3 flex items-center gap-2 rounded-lg border px-3 py-2 text-xs ${
-            settings.cookie_encryption
-              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
-              : "border-ink-700 bg-ink-900/50 text-neutral-400"
-          }`}
-        >
-          {settings.cookie_encryption ? (
-            <>
-              <Lock className="h-3.5 w-3.5 shrink-0" />
-              Encryption active (AES-256-GCM). New uploads are encrypted at rest.
-            </>
-          ) : (
-            <>
-              <Unlock className="h-3.5 w-3.5 shrink-0" />
-              Not encrypted. Set the COOKIE_ENCRYPTION_KEY container variable to
-              encrypt cookies at rest.
-            </>
+      <section className="mb-10">
+        <div className="mb-1.5 flex flex-wrap items-center gap-3">
+          <h2 className="flex items-center gap-2 text-lg font-semibold text-thistle-100">
+            <Cookie className="h-5 w-5 text-thistle-400" aria-hidden="true" />
+            Instagram cookies
+          </h2>
+          {settings?.cookie_encryption && (
+            <span className="inline-flex items-center gap-1 rounded-full border border-thistle-500/40 bg-thistle-300/10 px-2.5 py-0.5 text-xs text-thistle-200">
+              <Lock className="h-3 w-3" aria-hidden="true" />
+              Encrypted at rest
+            </span>
           )}
         </div>
-
-        <div className="mt-4 space-y-2">
-          {cookies.length === 0 ? (
-            <p className="text-sm text-neutral-500">No cookies uploaded yet.</p>
-          ) : (
-            cookies.map((c) => {
-              const st = cookieStatus[c.status];
-              const Icon = st.icon;
-              return (
-                <div
-                  key={c.id}
-                  className="flex items-center gap-3 rounded-xl border border-ink-700 bg-ink-900/50 px-4 py-3"
-                >
-                  <Icon className={`h-5 w-5 shrink-0 ${st.cls}`} />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5 truncate text-sm font-semibold">
-                      {c.encrypted && (
-                        <Lock className="h-3 w-3 shrink-0 text-emerald-400" />
-                      )}
-                      {c.label || c.original_name}
-                    </div>
-                    <div className="text-xs text-neutral-500">
-                      {st.label} · used {timeAgo(c.last_used_at)}
-                      {c.last_error ? ` · ${c.last_error.slice(0, 60)}` : ""}
-                    </div>
-                  </div>
-                  <label className="flex cursor-pointer items-center gap-2 text-xs text-neutral-400">
-                    <input
-                      type="checkbox"
-                      checked={c.enabled}
-                      onChange={async () => {
-                        await api.updateCookie(c.id, { enabled: !c.enabled });
-                        reload();
-                      }}
-                    />
-                    Enabled
-                  </label>
-                  <button
-                    className="text-red-400 hover:text-red-300"
-                    onClick={async () => {
-                      await api.deleteCookie(c.id);
-                      reload();
-                    }}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </div>
-              );
-            })
-          )}
-        </div>
-      </Section>
-
-      {/* Rate limiting */}
-      <Section
-        icon={Gauge}
-        title="Rate limiting"
-        desc="Randomized delay (seconds) inserted between Instagram API page requests. Higher = slower but safer against locks. Applies to the next job."
-      >
-        <div className="grid gap-5 sm:grid-cols-2">
-          {(["rate_limit_min", "rate_limit_max"] as const).map((key) => (
-            <div key={key}>
-              <div className="mb-1 flex justify-between text-sm">
-                <span className="text-neutral-400">
-                  {key === "rate_limit_min" ? "Minimum delay" : "Maximum delay"}
-                </span>
-                <span className="font-semibold">{settings[key].toFixed(1)}s</span>
-              </div>
-              <input
-                type="range"
-                min={0}
-                max={20}
-                step={0.5}
-                value={settings[key]}
-                onChange={(e) =>
-                  setSettings({ ...settings, [key]: Number(e.target.value) })
-                }
-                onMouseUp={(e) =>
-                  patch({ [key]: Number((e.target as HTMLInputElement).value) })
-                }
-                className="w-full accent-ig-pink"
-              />
-            </div>
-          ))}
-        </div>
-      </Section>
-
-      {/* Concurrency */}
-      <Section
-        icon={Cpu}
-        title="Download threads"
-        desc="Parallel download workers. Downloading is IO-bound, so threads speed it up — but more threads means more simultaneous requests and higher ban risk. The container default comes from the DOWNLOAD_THREADS env var."
-      >
-        <div className="flex items-center gap-4">
-          <input
-            type="range"
-            min={1}
-            max={16}
-            step={1}
-            value={settings.download_threads}
-            onChange={(e) =>
-              setSettings({ ...settings, download_threads: Number(e.target.value) })
-            }
-            onMouseUp={(e) =>
-              patch({ download_threads: Number((e.target as HTMLInputElement).value) })
-            }
-            className="flex-1 accent-ig-pink"
-          />
-          <span className="w-10 text-right text-lg font-extrabold">
-            {settings.download_threads}
-          </span>
-        </div>
-        <p className="mt-2 text-xs text-neutral-500">
-          Env default: {settings.env_defaults.download_threads} · Concurrent jobs
-          (env only): {settings.env_defaults.max_concurrent_jobs}
+        <p className="mb-4 text-sm text-thistle-500">
+          Upload a cookies.txt export to download private posts and reduce rate
+          limiting.
+          {settings && !settings.cookie_encryption
+            ? " Cookie files are stored unencrypted on disk."
+            : ""}
         </p>
-      </Section>
 
-      {/* Defaults + theme */}
-      <Section
-        icon={Check}
-        title="Defaults & appearance"
-        desc="Content types pre-selected for new scrapes, and the app theme."
-      >
-        <ContentToggles
-          value={{
-            include_posts: settings.default_include_posts,
-            include_reels: settings.default_include_reels,
-            include_stories: settings.default_include_stories,
-          }}
-          onChange={(sel) =>
-            patch({
-              default_include_posts: sel.include_posts,
-              default_include_reels: sel.include_reels,
-              default_include_stories: sel.include_stories,
-            })
-          }
-        />
-        <div className="mt-4 flex gap-2">
-          {["dark", "light"].map((t) => (
-            <button
-              key={t}
-              className={settings.theme === t ? "chip-on" : "chip-off"}
-              onClick={() => patch({ theme: t })}
+        <label className="mb-4 inline-flex cursor-pointer items-center gap-2 rounded-xl border border-mauve-500/60 bg-carbon-700/70 px-4 py-2.5 text-sm font-medium text-thistle-200 transition-colors hover:border-rose-500/60 hover:text-thistle-100 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-rose-300">
+          <input
+            type="file"
+            accept=".txt,text/plain"
+            className="sr-only"
+            onChange={(e) => void handleUpload(e)}
+            disabled={uploading}
+          />
+          {uploading ? (
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+          ) : (
+            <Upload className="h-4 w-4" aria-hidden="true" />
+          )}
+          {uploading ? "Uploading…" : "Upload cookies.txt"}
+        </label>
+
+        <ul className="divide-y divide-mauve-800/60 rounded-xl border border-mauve-800/60 bg-carbon-700/40">
+          {cookies.map((cookie) => (
+            <li
+              key={cookie.id}
+              className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3.5"
             >
-              {t[0].toUpperCase() + t.slice(1)}
-            </button>
+              <div className="min-w-0 flex-1">
+                <p className="flex items-center gap-2 text-sm font-medium text-thistle-100">
+                  <span className="truncate">{cookie.original_name}</span>
+                  {cookie.encrypted && (
+                    <Lock
+                      className="h-3.5 w-3.5 shrink-0 text-thistle-500"
+                      aria-label="Encrypted at rest"
+                    />
+                  )}
+                </p>
+                <p className="mt-0.5 text-xs text-thistle-500">
+                  Uploaded {timeAgo(cookie.uploaded_at)}
+                  {cookie.last_used_at ? ` · last used ${timeAgo(cookie.last_used_at)}` : ""}
+                </p>
+                {cookie.last_error && (
+                  <p className="mt-1 text-xs text-mahogany-300">{cookie.last_error}</p>
+                )}
+              </div>
+              <StatusBadge status={cookie.status} />
+              <button
+                type="button"
+                role="switch"
+                aria-checked={cookie.enabled}
+                aria-label={`${cookie.enabled ? "Disable" : "Enable"} ${cookie.original_name}`}
+                onClick={() => void toggleCookie(cookie)}
+                className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
+                  cookie.enabled ? "bg-rose-500" : "bg-mauve-800"
+                }`}
+              >
+                <span
+                  aria-hidden="true"
+                  className={`absolute top-0.5 h-5 w-5 rounded-full bg-thistle-200 transition-all ${
+                    cookie.enabled ? "left-[22px]" : "left-0.5"
+                  }`}
+                />
+              </button>
+              <button
+                type="button"
+                aria-label={`Delete ${cookie.original_name}`}
+                onClick={() => void deleteCookie(cookie)}
+                className="rounded-lg p-2 text-thistle-500 transition-colors hover:bg-mahogany-700/40 hover:text-mahogany-300"
+              >
+                <Trash2 className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </li>
           ))}
-        </div>
-      </Section>
+          {cookies.length === 0 && (
+            <li className="px-4 py-6 text-sm text-thistle-500">
+              {cookiesLoaded
+                ? "No cookie files yet — public posts still work without one."
+                : "Loading…"}
+            </li>
+          )}
+        </ul>
+      </section>
+
+      {/* Download behaviour */}
+      <section>
+        <h2 className="mb-4 text-lg font-semibold text-thistle-100">Download behaviour</h2>
+        {form && settings ? (
+          <div className="space-y-6 rounded-xl border border-mauve-800/60 bg-carbon-700/40 p-5">
+            <SliderField
+              label="Minimum delay between downloads"
+              value={form.rate_limit_min}
+              min={0}
+              max={60}
+              step={0.5}
+              unit="s"
+              hint={`Default: ${settings.env_defaults.rate_limit_min}s`}
+              onChange={(v) => setForm((f) => (f ? { ...f, rate_limit_min: v } : f))}
+              onCommit={() => void commitSliders()}
+            />
+            <SliderField
+              label="Maximum delay between downloads"
+              value={form.rate_limit_max}
+              min={0}
+              max={120}
+              step={0.5}
+              unit="s"
+              hint={`Default: ${settings.env_defaults.rate_limit_max}s — kept at or above the minimum delay`}
+              onChange={(v) => setForm((f) => (f ? { ...f, rate_limit_max: v } : f))}
+              onCommit={() => void commitSliders()}
+            />
+            <SliderField
+              label="Download threads"
+              value={form.download_threads}
+              min={1}
+              max={16}
+              step={1}
+              hint={`Default: ${settings.env_defaults.download_threads}`}
+              onChange={(v) => setForm((f) => (f ? { ...f, download_threads: v } : f))}
+              onCommit={() => void commitSliders()}
+            />
+          </div>
+        ) : (
+          <div className="flex justify-center rounded-xl border border-mauve-800/60 bg-carbon-700/40 py-10">
+            <Loader2 className="h-6 w-6 animate-spin text-thistle-500" aria-label="Loading settings" />
+          </div>
+        )}
+      </section>
+    </Page>
+  );
+}
+
+interface SliderFieldProps {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  unit?: string;
+  hint: string;
+  onChange: (value: number) => void;
+  onCommit: () => void;
+}
+
+function SliderField({
+  label,
+  value,
+  min,
+  max,
+  step,
+  unit,
+  hint,
+  onChange,
+  onCommit,
+}: SliderFieldProps) {
+  const id = useId();
+  return (
+    <div>
+      <div className="mb-1.5 flex items-baseline justify-between gap-3">
+        <label htmlFor={id} className="text-sm font-medium text-thistle-200">
+          {label}
+        </label>
+        <span className="font-mono text-sm text-thistle-100">
+          {value}
+          {unit ?? ""}
+        </span>
+      </div>
+      <input
+        id={id}
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        onPointerUp={onCommit}
+        onKeyUp={onCommit}
+        onTouchEnd={onCommit}
+        className="w-full accent-rose-400"
+      />
+      <p className="mt-1 text-xs text-thistle-500">{hint}</p>
     </div>
   );
 }

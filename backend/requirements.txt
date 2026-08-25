@@ -1,7 +1,6 @@
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
 sqlmodel==0.0.22
-instaloader==4.14.1
 httpx==0.28.1
 python-multipart==0.0.20
-cryptography==43.0.3
+cryptography==44.0.1

@@ -1,6 +1,7 @@
 # CLAUDE.md
 
-Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
+Project conventions for Claude — behavioral guidelines to reduce common LLM
+coding mistakes, followed by project-specific instructions.
 
 **Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
 
@@ -63,3 +64,30 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 ---
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
+
+## CI / builds
+- **Always watch the build go green.** After any push that triggers GitHub
+  Actions (pushes to `main`/`master`/dev branches, version tags, or the
+  `docker-publish.yml` workflow), monitor the resulting workflow run until it
+  completes.
+  - If it **succeeds**, report that the new `ghcr.io/anotherasian123/gramglean:latest`
+    image is published.
+  - If it **fails**, fetch the job logs, diagnose, push a fix, and re-run until
+    it is green. Do not consider the task done while CI is red.
+
+## Logging (always a priority)
+- **Every error must be logged in two variations:**
+  1. **Frontend (summarised):** a short, friendly, actionable message shown in the
+     UI (toast/popup), ending with a pointer like *"see the log file for full
+     details."* Never dump stack traces or raw tool output at the user.
+  2. **Backend (maximally detailed):** the full context — exception/traceback, the
+     exact command run (secrets redacted), exit codes, and complete tool output —
+     written to `CONFIG_DIR/logs/` (`gramglean.log` + `failed_downloads.log`).
+- Prefer too much backend detail over too little. When adding any new failure
+  path, wire up both variations; don't let an error surface as just an ID/URL.
+- The user-facing summary and the backend detail are produced together at the
+  point of failure (see `jobs/errors.py`: `summarise_error` / `write_failure_detail`).
+- Advise if the logging will take up large amounts of space. If so, notify the user and provide solutions to this.
+
+## Repo facts
+- Application Usage: This app will be first and foremost used in an Unraid Self Hosted setting. Ensure changes made and suggested are in line with Unraid Best Practices for app development. Ensure overhead is kept to a minimum to avoid any bloating of the overarching unraid system, or any unexpected crashes, memory consumption and out of bounds requests.

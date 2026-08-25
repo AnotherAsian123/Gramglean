@@ -1,10 +1,8 @@
 from fastapi import APIRouter
 
-from .. import __version__
-
-router = APIRouter(prefix="/api", tags=["health"])
+router = APIRouter()
 
 
 @router.get("/health")
 def health() -> dict:
-    return {"status": "ok", "version": __version__}
+    return {"status": "ok"}

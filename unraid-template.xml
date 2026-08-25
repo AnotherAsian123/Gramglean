@@ -1,40 +1,40 @@
 <?xml version="1.0"?>
 <!--
-  Unraid Community Apps template.
-  Replace AnotherAsian123 with your GitHub username/org once the image is published to GHCR.
+  Unraid Community Apps template for Gramglean.
   In Unraid: Docker tab -> Add Container -> Template: paste the raw URL of this
   file, or drop it in /boot/config/plugins/dockerMan/templates-user/.
 -->
 <Container version="2">
-  <Name>UnRaiders-of-the-lost-Sta</Name>
-  <Repository>ghcr.io/anotherasian123/unraiders-of-the-lost-sta:latest</Repository>
-  <Registry>https://github.com/AnotherAsian123/UnRaiders-of-the-lost-Sta/pkgs/container/unraiders-of-the-lost-sta</Registry>
+  <Name>Gramglean</Name>
+  <Repository>ghcr.io/anotherasian123/gramglean:latest</Repository>
+  <Registry>https://github.com/AnotherAsian123/Gramglean/pkgs/container/gramglean</Registry>
   <Network>bridge</Network>
   <MyIP/>
   <Shell>bash</Shell>
   <Privileged>false</Privileged>
-  <Support>https://github.com/AnotherAsian123/UnRaiders-of-the-lost-Sta/issues</Support>
-  <Project>https://github.com/AnotherAsian123/UnRaiders-of-the-lost-Sta</Project>
-  <Overview>Self-hosted Instagram archiver. Download full-resolution posts, carousels, reels and stories from any account, with incremental sync, multi-cookie rotation, configurable parallel downloads, and detailed per-resource error logs. Instagram-inspired web UI.</Overview>
+  <Support>https://github.com/AnotherAsian123/Gramglean/issues</Support>
+  <Project>https://github.com/AnotherAsian123/Gramglean</Project>
+  <Overview>Paste Instagram links, glean every image. Gramglean downloads the full-resolution media from Instagram posts and reels — every image in a carousel, not just the visible ones — with optional cookie login for private posts, parallel downloads, a built-in gallery, and detailed failure logs.</Overview>
   <Category>MediaApp:Photos Tools: Downloaders:</Category>
   <WebUI>http://[IP]:[PORT:8080]/</WebUI>
-  <Icon>https://raw.githubusercontent.com/AnotherAsian123/UnRaiders-of-the-lost-Sta/main/frontend/public/favicon.svg</Icon>
+  <Icon>https://raw.githubusercontent.com/AnotherAsian123/Gramglean/main/icon.png</Icon>
   <ExtraParams/>
   <PostArgs/>
   <DonateText/>
   <DonateLink/>
-  <Description>Self-hosted Instagram archiver with an Instagram-inspired UI. Archives full-resolution images and reels, handles carousels and stories, syncs incrementally, rotates through multiple cookie files to dodge rate limits, and writes a detailed failure log for every resource that could not be downloaded.</Description>
+  <Description>Self-hosted Instagram link downloader. Paste one or more post/reel links and Gramglean archives every image and video in them at full resolution, including complete carousels. Re-submitting a link skips what is already archived. Supports multiple cookies.txt files with rotation, optional at-rest cookie encryption, and writes a detailed log entry for every resource that could not be downloaded.</Description>
   <Config Name="WebUI Port" Target="8080" Default="8080" Mode="tcp" Description="Port for the web interface." Type="Port" Display="always" Required="true" Mask="false">8080</Config>
-  <Config Name="App config" Target="/config" Default="/mnt/user/appdata/unraiders" Mode="rw" Description="Database, cookies and logs." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/unraiders</Config>
-  <Config Name="Downloads" Target="/downloads" Default="/mnt/user/media/instagram" Mode="rw" Description="Where archived media is stored." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/media/instagram</Config>
+  <Config Name="App config" Target="/config" Default="/mnt/user/appdata/gramglean" Mode="rw" Description="Database, cookies and logs." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/gramglean</Config>
+  <Config Name="Downloads" Target="/downloads" Default="/mnt/user/media/instagram" Mode="rw" Description="Where downloaded media is stored." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/media/instagram</Config>
   <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="User ID for file ownership (Unraid default 99 = nobody)." Type="Variable" Display="always" Required="true" Mask="false">99</Config>
   <Config Name="PGID" Target="PGID" Default="100" Mode="" Description="Group ID for file ownership (Unraid default 100 = users)." Type="Variable" Display="always" Required="true" Mask="false">100</Config>
   <Config Name="UMASK" Target="UMASK" Default="022" Mode="" Description="File-creation umask." Type="Variable" Display="advanced" Required="false" Mask="false">022</Config>
   <Config Name="TZ" Target="TZ" Default="Etc/UTC" Mode="" Description="Timezone, e.g. America/New_York." Type="Variable" Display="always" Required="false" Mask="false">Etc/UTC</Config>
-  <Config Name="Download threads" Target="DOWNLOAD_THREADS" Default="4" Mode="" Description="Parallel download workers. Higher is faster but increases rate-limit/ban risk." Type="Variable" Display="always" Required="false" Mask="false">4</Config>
-  <Config Name="Max concurrent jobs" Target="MAX_CONCURRENT_JOBS" Default="1" Mode="" Description="How many account scrapes run at once. Keep at 1 to minimise ban risk." Type="Variable" Display="advanced" Required="false" Mask="false">1</Config>
-  <Config Name="Rate limit min (s)" Target="RATE_LIMIT_MIN" Default="2.0" Mode="" Description="Minimum randomized delay between Instagram API requests." Type="Variable" Display="advanced" Required="false" Mask="false">2.0</Config>
-  <Config Name="Rate limit max (s)" Target="RATE_LIMIT_MAX" Default="5.0" Mode="" Description="Maximum randomized delay between Instagram API requests." Type="Variable" Display="advanced" Required="false" Mask="false">5.0</Config>
+  <Config Name="Download threads" Target="DOWNLOAD_THREADS" Default="4" Mode="" Description="Parallel download workers. Higher is faster but increases rate-limit risk." Type="Variable" Display="always" Required="false" Mask="false">4</Config>
+  <Config Name="Max concurrent jobs" Target="MAX_CONCURRENT_JOBS" Default="1" Mode="" Description="How many jobs run at once. Keep at 1 to minimise rate-limit risk." Type="Variable" Display="advanced" Required="false" Mask="false">1</Config>
+  <Config Name="Rate limit min (s)" Target="RATE_LIMIT_MIN" Default="2.0" Mode="" Description="Minimum randomized delay between Instagram post fetches." Type="Variable" Display="advanced" Required="false" Mask="false">2.0</Config>
+  <Config Name="Rate limit max (s)" Target="RATE_LIMIT_MAX" Default="5.0" Mode="" Description="Maximum randomized delay between Instagram post fetches." Type="Variable" Display="advanced" Required="false" Mask="false">5.0</Config>
   <Config Name="Log level" Target="LOG_LEVEL" Default="INFO" Mode="" Description="INFO or DEBUG." Type="Variable" Display="advanced" Required="false" Mask="false">INFO</Config>
+  <Config Name="Log retention (days)" Target="LOG_RETENTION_DAYS" Default="30" Mode="" Description="Per-job log files older than this are deleted at startup." Type="Variable" Display="advanced" Required="false" Mask="false">30</Config>
   <Config Name="Cookie encryption key" Target="COOKIE_ENCRYPTION_KEY" Default="" Mode="" Description="Optional. Encrypts cookie files at rest (AES-256-GCM). Leave blank for plaintext. Generate with: python -c &quot;import secrets,base64;print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())&quot;" Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
 </Container>

@@ -1,49 +1,58 @@
-"""Logging configuration.
+"""Logging: stdout (docker logs) + rotating files under CONFIG_DIR/logs.
 
-Three logging surfaces:
-  * the root/app logger -> stdout (visible in `docker logs`) + /config/logs/app.log
-  * a per-job activity log -> /config/logs/job-<id>.log
-  * a per-resource failure log -> /config/logs/job-<id>.errors.log and a shared
-    /config/logs/errors.log, with exactly one line per failed resource so you can
-    review afterwards why each picture/reel/story failed.
+Files:
+  gramglean.log         general application log (rotating, 5 MB x 3)
+  failed_downloads.log  one detailed block per failed resource, all jobs (rotating)
+  job-<id>.log          per-job activity (pruned after LOG_RETENTION_DAYS)
+  job-<id>.errors.log   per-job failures only (pruned after LOG_RETENTION_DAYS)
 """
 from __future__ import annotations
 
 import logging
+import time
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-from . import config
+from ..core import config
 
 _FMT = "%(asctime)s | %(levelname)-7s | %(name)s | %(message)s"
+_MARK = "_gramglean"
 
 
 def setup_logging() -> None:
-    config.ensure_dirs()
     root = logging.getLogger()
-    root.setLevel(config.LOG_LEVEL)
-
-    # Avoid duplicate handlers if called twice (e.g. reload).
-    if any(getattr(h, "_unraiders", False) for h in root.handlers):
+    root.setLevel(config.LOG_LEVEL if config.LOG_LEVEL in ("DEBUG", "INFO") else "INFO")
+    if any(getattr(h, _MARK, False) for h in root.handlers):
         return
 
+    formatter = logging.Formatter(_FMT)
+
     stream = logging.StreamHandler()
-    stream.setFormatter(logging.Formatter(_FMT))
-    stream._unraiders = True  # type: ignore[attr-defined]
+    stream.setFormatter(formatter)
+    setattr(stream, _MARK, True)
     root.addHandler(stream)
 
+    config.LOGS_DIR.mkdir(parents=True, exist_ok=True)
     app_file = RotatingFileHandler(
-        config.LOGS_DIR / "app.log", maxBytes=5_000_000, backupCount=3, encoding="utf-8"
+        config.LOGS_DIR / "gramglean.log", maxBytes=5 * 1024 * 1024, backupCount=3
     )
-    app_file.setFormatter(logging.Formatter(_FMT))
-    app_file._unraiders = True  # type: ignore[attr-defined]
+    app_file.setFormatter(formatter)
+    setattr(app_file, _MARK, True)
     root.addHandler(app_file)
 
-    # instaloader is chatty at INFO; keep it at WARNING unless we're debugging.
-    if config.LOG_LEVEL != "DEBUG":
-        logging.getLogger("instaloader").setLevel(logging.WARNING)
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    for noisy in ("httpx", "httpcore"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
+
+
+def failed_downloads_handler() -> RotatingFileHandler:
+    """Shared, rotating detail log for every failed resource across all jobs."""
+    handler = RotatingFileHandler(
+        config.LOGS_DIR / "failed_downloads.log",
+        maxBytes=5 * 1024 * 1024,
+        backupCount=2,
+    )
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    return handler
 
 
 def job_log_path(job_id: int) -> Path:
@@ -54,5 +63,17 @@ def job_error_log_path(job_id: int) -> Path:
     return config.LOGS_DIR / f"job-{job_id}.errors.log"
 
 
-def shared_error_log_path() -> Path:
-    return config.LOGS_DIR / "errors.log"
+def prune_old_job_logs() -> int:
+    """Delete job-*.log files older than LOG_RETENTION_DAYS. Runs at startup."""
+    cutoff = time.time() - config.LOG_RETENTION_DAYS * 86400
+    removed = 0
+    for path in config.LOGS_DIR.glob("job-*.log"):
+        try:
+            if path.stat().st_mtime < cutoff:
+                path.unlink()
+                removed += 1
+        except OSError:
+            pass
+    if removed:
+        logging.getLogger(__name__).info("Pruned %d old job log(s)", removed)
+    return removed

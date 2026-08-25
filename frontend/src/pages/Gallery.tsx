@@ -1,126 +1,174 @@
-import { useCallback, useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
-import { api, type Account, type Media } from "../lib/api";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { AnimatePresence } from "framer-motion";
+import { Loader2 } from "lucide-react";
+import { api, errorMessage } from "../lib/api";
+import type { Media, UsernameCount } from "../lib/api";
+import { Page } from "../components/Layout";
 import MediaGrid from "../components/MediaGrid";
 import Lightbox from "../components/Lightbox";
+import { useToast } from "../components/Toast";
 
-const PAGE = 60;
+type MediaTypeFilter = "" | "image" | "video";
 
-const FILTERS: { key: string; label: string; source?: string; media_type?: string }[] = [
-  { key: "all", label: "All" },
-  { key: "post", label: "Posts", source: "post" },
-  { key: "carousel", label: "Carousels", source: "carousel" },
-  { key: "reel", label: "Reels", source: "reel" },
-  { key: "story", label: "Stories", source: "story" },
-  { key: "video", label: "Videos", media_type: "video" },
+const PAGE_SIZE = 60;
+
+const TYPE_FILTERS: ReadonlyArray<{ value: MediaTypeFilter; label: string }> = [
+  { value: "", label: "All" },
+  { value: "image", label: "Images" },
+  { value: "video", label: "Videos" },
 ];
 
 export default function Gallery() {
-  const [params, setParams] = useSearchParams();
-  const accountId = params.get("account") ? Number(params.get("account")) : undefined;
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [filter, setFilter] = useState("all");
   const [items, setItems] = useState<Media[]>([]);
   const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(false);
+  const [usernames, setUsernames] = useState<UsernameCount[]>([]);
+  const [username, setUsername] = useState("");
+  const [mediaType, setMediaType] = useState<MediaTypeFilter>("");
+  const [loading, setLoading] = useState(true);
   const [lightbox, setLightbox] = useState<number | null>(null);
+  const { toast } = useToast();
 
+  // The offset for "Load more" is derived from a ref kept in sync with the
+  // items state, so the callback never sees a stale item count.
+  const itemsRef = useRef<Media[]>([]);
   useEffect(() => {
-    api.listAccounts().then(setAccounts);
-  }, []);
+    itemsRef.current = items;
+  }, [items]);
 
-  const load = useCallback(
+  const requestRef = useRef(0);
+  const loadingRef = useRef(false);
+
+  const fetchPage = useCallback(
     async (reset: boolean) => {
+      if (!reset && loadingRef.current) return;
+      const requestId = ++requestRef.current;
+      loadingRef.current = true;
       setLoading(true);
-      const f = FILTERS.find((x) => x.key === filter)!;
-      const offset = reset ? 0 : items.length;
       try {
-        const res = await api.listMedia({
-          account_id: accountId,
-          source: f.source,
-          media_type: f.media_type,
-          limit: PAGE,
+        const offset = reset ? 0 : itemsRef.current.length;
+        const page = await api.listMedia({
+          username: username || undefined,
+          media_type: mediaType === "" ? undefined : mediaType,
           offset,
+          limit: PAGE_SIZE,
         });
-        setTotal(res.total);
-        setItems((prev) => (reset ? res.items : [...prev, ...res.items]));
+        if (requestId !== requestRef.current) return; // superseded by a newer request
+        setTotal(page.total);
+        setItems((prev) => (reset ? page.items : [...prev, ...page.items]));
+      } catch (err) {
+        if (requestId === requestRef.current) toast(errorMessage(err));
       } finally {
-        setLoading(false);
+        if (requestId === requestRef.current) {
+          loadingRef.current = false;
+          setLoading(false);
+        }
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [accountId, filter]
+    [username, mediaType, toast],
   );
 
+  // Refetch from the start whenever a filter changes (fetchPage identity
+  // changes with the filters).
   useEffect(() => {
-    load(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accountId, filter]);
+    setLightbox(null);
+    void fetchPage(true);
+  }, [fetchPage]);
+
+  useEffect(() => {
+    let stale = false;
+    api
+      .listUsernames()
+      .then((u) => {
+        if (!stale) setUsernames(u);
+      })
+      .catch((err: unknown) => {
+        if (!stale) toast(errorMessage(err));
+      });
+    return () => {
+      stale = true;
+    };
+  }, [toast]);
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-extrabold">Gallery</h1>
-        <select
-          className="input w-auto"
-          value={accountId ?? ""}
-          onChange={(e) => {
-            const v = e.target.value;
-            if (v) setParams({ account: v });
-            else setParams({});
-          }}
-        >
-          <option value="">All accounts</option>
-          {accounts.map((a) => (
-            <option key={a.id} value={a.id}>
-              @{a.username} ({a.media_count ?? 0})
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        {FILTERS.map((f) => (
-          <button
-            key={f.key}
-            className={filter === f.key ? "chip-on" : "chip-off"}
-            onClick={() => setFilter(f.key)}
+    <Page>
+      <div className="mb-6 flex flex-wrap items-center gap-3">
+        <h1 className="text-2xl font-semibold text-thistle-100">Gallery</h1>
+        <span className="text-sm text-thistle-500">
+          {total} {total === 1 ? "item" : "items"}
+        </span>
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <label htmlFor="username-filter" className="sr-only">
+            Filter by account
+          </label>
+          <select
+            id="username-filter"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            className="rounded-lg border border-mauve-500/60 bg-carbon-700 px-3 py-1.5 text-sm text-thistle-200"
           >
-            {f.label}
-          </button>
-        ))}
+            <option value="">All accounts</option>
+            {usernames.map((u) => (
+              <option key={u.username} value={u.username}>
+                @{u.username} ({u.count})
+              </option>
+            ))}
+          </select>
+          <div
+            role="group"
+            aria-label="Media type"
+            className="flex overflow-hidden rounded-lg border border-mauve-500/60"
+          >
+            {TYPE_FILTERS.map((filter) => (
+              <button
+                key={filter.value}
+                type="button"
+                onClick={() => setMediaType(filter.value)}
+                aria-pressed={mediaType === filter.value}
+                className={`px-3 py-1.5 text-sm transition-colors ${
+                  mediaType === filter.value
+                    ? "bg-rose-600/50 text-thistle-100"
+                    : "bg-carbon-700 text-thistle-400 hover:text-thistle-200"
+                }`}
+              >
+                {filter.label}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
       {items.length === 0 && !loading ? (
-        <div className="card grid place-items-center p-16 text-center text-neutral-500">
-          Nothing here yet. Run a scrape from the dashboard.
-        </div>
+        <p className="rounded-xl border border-dashed border-mauve-700/60 px-4 py-16 text-center text-sm text-thistle-500">
+          Nothing here yet — download some posts and they'll show up in your gallery.
+        </p>
       ) : (
-        <>
-          <MediaGrid items={items} onOpen={setLightbox} />
-          {loading && (
-            <div className="grid grid-cols-3 gap-1 sm:gap-2 md:grid-cols-4 lg:grid-cols-5">
-              {Array.from({ length: 10 }).map((_, i) => (
-                <div key={i} className="aspect-square skeleton rounded-lg" />
-              ))}
-            </div>
-          )}
-          {items.length < total && !loading && (
-            <div className="flex justify-center pt-2">
-              <button className="btn-ghost" onClick={() => load(false)}>
-                Load more ({items.length}/{total})
-              </button>
-            </div>
-          )}
-        </>
+        <MediaGrid items={items} onSelect={(i) => setLightbox(i)} />
       )}
 
-      <Lightbox
-        items={items}
-        index={lightbox}
-        onClose={() => setLightbox(null)}
-        onNavigate={setLightbox}
-      />
-    </div>
+      <div className="mt-6 flex justify-center">
+        {loading ? (
+          <Loader2 className="h-6 w-6 animate-spin text-thistle-500" aria-label="Loading media" />
+        ) : items.length < total ? (
+          <button
+            type="button"
+            onClick={() => void fetchPage(false)}
+            className="rounded-xl border border-mauve-500/60 bg-carbon-700/70 px-6 py-2.5 text-sm font-medium text-thistle-200 transition-colors hover:border-rose-500/60 hover:text-thistle-100"
+          >
+            Load more ({total - items.length} remaining)
+          </button>
+        ) : null}
+      </div>
+
+      <AnimatePresence>
+        {lightbox !== null && lightbox < items.length && (
+          <Lightbox
+            items={items}
+            index={lightbox}
+            onClose={() => setLightbox(null)}
+            onNavigate={setLightbox}
+          />
+        )}
+      </AnimatePresence>
+    </Page>
   );
 }

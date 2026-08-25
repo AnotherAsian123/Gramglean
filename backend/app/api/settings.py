@@ -1,4 +1,4 @@
-from typing import Optional
+from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
@@ -7,42 +7,40 @@ from sqlmodel import Session
 from ..core import config, crypto
 from ..core.settings_service import get_effective, update_settings
 from ..db.database import get_session
-from ..jobs.cookies import count_enabled
+from ..insta.cookies import count_enabled
 
-router = APIRouter(prefix="/api/settings", tags=["settings"])
+router = APIRouter()
 
 
 class SettingsUpdate(BaseModel):
-    rate_limit_min: Optional[float] = None
-    rate_limit_max: Optional[float] = None
-    download_threads: Optional[int] = None
-    theme: Optional[str] = None
-    default_include_posts: Optional[bool] = None
-    default_include_reels: Optional[bool] = None
-    default_include_stories: Optional[bool] = None
+    rate_limit_min: float | None = None
+    rate_limit_max: float | None = None
+    download_threads: int | None = None
 
 
 def _payload(session: Session) -> dict:
-    eff = get_effective(session)
-    data = eff.as_dict()
-    data["cookies_available"] = count_enabled()
-    data["cookie_encryption"] = crypto.encryption_enabled()
-    # Surface which knobs come from the environment so the UI can hint at it.
-    data["env_defaults"] = {
-        "download_threads": config.DOWNLOAD_THREADS,
-        "max_concurrent_jobs": config.MAX_CONCURRENT_JOBS,
-        "rate_limit_min": config.RATE_LIMIT_MIN,
-        "rate_limit_max": config.RATE_LIMIT_MAX,
+    effective = get_effective(session)
+    return {
+        "rate_limit_min": effective.rate_limit_min,
+        "rate_limit_max": effective.rate_limit_max,
+        "download_threads": effective.download_threads,
+        "cookies_available": count_enabled(session),
+        "cookie_encryption": crypto.encryption_enabled(),
+        "env_defaults": {
+            "rate_limit_min": config.RATE_LIMIT_MIN,
+            "rate_limit_max": config.RATE_LIMIT_MAX,
+            "download_threads": config.DOWNLOAD_THREADS,
+        },
     }
-    return data
 
 
-@router.get("")
-def read_settings(session: Session = Depends(get_session)) -> dict:
+@router.get("/settings")
+def get_settings(session: Session = Depends(get_session)) -> dict:
     return _payload(session)
 
 
-@router.put("")
-def write_settings(payload: SettingsUpdate, session: Session = Depends(get_session)) -> dict:
+@router.put("/settings")
+def put_settings(payload: SettingsUpdate, session: Session = Depends(get_session)) -> dict:
     update_settings(session, payload.model_dump(exclude_none=True))
+    session.commit()
     return _payload(session)

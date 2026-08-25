@@ -1,100 +1,79 @@
-"""SQLModel table definitions."""
+"""SQLite schema (SQLModel).
+
+A Job is one submitted batch of Instagram links. Each Link tracks one post
+through resolve -> fetch -> download. Media rows are the permanent archive —
+their existence is what makes re-submitting a link a no-op.
+"""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import UniqueConstraint
-from sqlmodel import Field, SQLModel
+from sqlmodel import Field, SQLModel, UniqueConstraint
 
 
-def _utcnow() -> datetime:
-    return datetime.utcnow()
-
-
-class Account(SQLModel, table=True):
-    """An Instagram account on the watchlist."""
-
-    id: Optional[int] = Field(default=None, primary_key=True)
-    username: str = Field(index=True, unique=True)
-    full_name: Optional[str] = None
-    profile_pic_url: Optional[str] = None
-    instagram_userid: Optional[str] = None
-    added_at: datetime = Field(default_factory=_utcnow)
-    last_synced_at: Optional[datetime] = None
-    # Per-account default content toggles, used to pre-fill a new job.
-    include_posts: bool = True
-    include_reels: bool = True
-    include_stories: bool = False
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class Job(SQLModel, table=True):
-    """A single scrape run for one account."""
-
     id: Optional[int] = Field(default=None, primary_key=True)
-    account_id: int = Field(index=True)
-    username: str
-    # queued | running | completed | failed | cancelled | rate_limited
-    status: str = Field(default="queued", index=True)
-    include_posts: bool = True
-    include_reels: bool = True
-    include_stories: bool = False
-    created_at: datetime = Field(default_factory=_utcnow)
+    status: str = Field(default="queued", index=True)  # queued|running|completed|failed|cancelled
+    created_at: datetime = Field(default_factory=utcnow)
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
-    total: int = 0          # resources discovered to download (after incremental skip)
+    link_count: int = 0
+    total: int = 0        # media items discovered
     downloaded: int = 0
-    skipped: int = 0        # already present (incremental sync)
+    skipped: int = 0      # already archived
     failed: int = 0
     cookie_used: Optional[str] = None
-    error: Optional[str] = None
-    log_path: Optional[str] = None
-    error_log_path: Optional[str] = None
+    error: Optional[str] = None  # friendly summary shown in the UI
+
+
+class Link(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    job_id: int = Field(index=True, foreign_key="job.id")
+    url: str
+    shortcode: str = Field(index=True)
+    status: str = Field(default="pending")  # pending|fetching|done|failed|skipped
+    username: Optional[str] = None
+    caption: Optional[str] = None
+    taken_at: Optional[datetime] = None
+    media_count: int = 0
+    error: Optional[str] = None  # friendly summary shown in the UI
 
 
 class Media(SQLModel, table=True):
-    """One downloaded file. Doubles as the incremental-sync archive: presence of
-    a row means the resource has already been fetched and will be skipped."""
-
     __table_args__ = (
-        UniqueConstraint("account_id", "shortcode", "child_index", name="uq_media"),
+        UniqueConstraint("shortcode", "child_index", name="uq_media"),
     )
-
     id: Optional[int] = Field(default=None, primary_key=True)
-    account_id: int = Field(index=True)
-    job_id: Optional[int] = Field(default=None, index=True)
+    job_id: int = Field(index=True)
     shortcode: str = Field(index=True)
     child_index: int = 0
-    media_type: str = "image"      # image | video
-    source: str = "post"           # post | carousel | reel | story
-    file_path: str = ""
+    media_type: str = "image"  # image|video
+    username: Optional[str] = Field(default=None, index=True)
+    file_path: str
     width: Optional[int] = None
     height: Optional[int] = None
     taken_at: Optional[datetime] = None
     caption: Optional[str] = None
-    downloaded_at: datetime = Field(default_factory=_utcnow)
+    downloaded_at: datetime = Field(default_factory=utcnow)
 
 
 class CookieFile(SQLModel, table=True):
-    """An uploaded Instagram cookies.txt. Multiple may exist; the scraper cycles
-    through them to spread load and dodge rate limits. Uploads never overwrite an
-    existing file."""
-
     id: Optional[int] = Field(default=None, primary_key=True)
-    filename: str = Field(unique=True)   # stored name under /config/cookies
-    original_name: str = ""
-    label: Optional[str] = None
-    uploaded_at: datetime = Field(default_factory=_utcnow)
+    filename: str = Field(unique=True)  # stored name under CONFIG_DIR/cookies
+    original_name: str
+    uploaded_at: datetime = Field(default_factory=utcnow)
     enabled: bool = True
     encrypted: bool = False
     last_used_at: Optional[datetime] = None
-    # unknown | ok | rate_limited | invalid
-    status: str = "unknown"
+    status: str = "unknown"  # unknown|ok|rate_limited|invalid
     last_error: Optional[str] = None
 
 
 class Setting(SQLModel, table=True):
-    """Simple key/value store for UI-configurable settings."""
-
     key: str = Field(primary_key=True)
-    value: str = ""
+    value: str

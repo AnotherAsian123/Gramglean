@@ -1,3 +1,3 @@
-"""UnRaiders of the lost Sta — Instagram archiver backend."""
+"""Gramglean — Instagram link downloader backend."""
 
-__version__ = "1.0.0"
+__version__ = "2.0.0"

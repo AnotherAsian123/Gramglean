@@ -1,64 +1,51 @@
-import { motion } from "framer-motion";
-import { Play, Layers, Film, Clock } from "lucide-react";
-import type { Media } from "../lib/api";
+import { Play } from "lucide-react";
 import { api } from "../lib/api";
+import type { Media } from "../lib/api";
 
-const sourceIcon = {
-  post: null,
-  carousel: Layers,
-  reel: Film,
-  story: Clock,
-} as const;
-
-export default function MediaGrid({
-  items,
-  onOpen,
-}: {
+interface MediaGridProps {
   items: Media[];
-  onOpen: (index: number) => void;
-}) {
+  onSelect: (index: number) => void;
+}
+
+export default function MediaGrid({ items, onSelect }: MediaGridProps) {
   return (
-    <div className="grid grid-cols-3 gap-1 sm:gap-2 md:grid-cols-4 lg:grid-cols-5">
-      {items.map((m, i) => {
-        const Badge = sourceIcon[m.source];
-        const isVideo = m.media_type === "video";
+    <div className="columns-2 gap-3 sm:columns-3 lg:columns-4 xl:columns-5">
+      {items.map((media, index) => {
+        const label = media.caption
+          ? media.caption.slice(0, 80)
+          : `Post by ${media.username ?? "unknown"}`;
         return (
-          <motion.button
-            key={m.id}
-            layout
-            initial={{ opacity: 0, scale: 0.96 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.2, delay: Math.min(i, 12) * 0.015 }}
-            onClick={() => onOpen(i)}
-            className="group relative aspect-square overflow-hidden rounded-lg bg-ink-800"
+          <button
+            key={media.id}
+            type="button"
+            onClick={() => onSelect(index)}
+            className="group relative mb-3 block w-full break-inside-avoid overflow-hidden rounded-xl border border-mauve-800/70 bg-carbon-700 transition-colors hover:border-rose-500/60"
           >
-            {isVideo ? (
-              <>
+            {media.media_type === "video" ? (
+              <span className="relative block">
                 <video
-                  src={api.mediaFileUrl(m.id) + "#t=0.1"}
-                  preload="metadata"
+                  src={api.mediaFileUrl(media.id)}
                   muted
-                  className="h-full w-full object-cover"
+                  playsInline
+                  preload="metadata"
+                  tabIndex={-1}
+                  aria-hidden="true"
+                  className="aspect-square w-full object-cover"
                 />
-                <div className="absolute inset-0 grid place-items-center bg-black/20">
-                  <Play className="h-9 w-9 text-white drop-shadow" fill="white" />
-                </div>
-              </>
+                <span className="absolute inset-0 flex items-center justify-center bg-carbon-950/25 transition-colors group-hover:bg-carbon-950/10">
+                  <Play className="h-8 w-8 text-thistle-100 drop-shadow-lg" aria-hidden="true" />
+                </span>
+                <span className="sr-only">{`Video: ${label}`}</span>
+              </span>
             ) : (
               <img
-                src={api.mediaFileUrl(m.id)}
+                src={api.mediaFileUrl(media.id)}
+                alt={label}
                 loading="lazy"
-                alt={m.shortcode}
-                className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
+                className="w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
               />
             )}
-            {Badge && (
-              <div className="absolute right-1.5 top-1.5 rounded-md bg-black/55 p-1 backdrop-blur">
-                <Badge className="h-3.5 w-3.5 text-white" />
-              </div>
-            )}
-            <div className="pointer-events-none absolute inset-0 ring-1 ring-inset ring-white/5 group-hover:ring-ig-pink/50" />
-          </motion.button>
+          </button>
         );
       })}
     </div>

@@ -1,34 +1,39 @@
-import type { JobStatus } from "./api";
+// Date/text formatting helpers.
 
-export function timeAgo(iso: string | null): string {
-  if (!iso) return "never";
-  const then = new Date(iso.endsWith("Z") || iso.includes("+") ? iso : iso + "Z").getTime();
-  const secs = Math.floor((Date.now() - then) / 1000);
-  if (Number.isNaN(secs)) return "—";
-  if (secs < 60) return "just now";
-  const mins = Math.floor(secs / 60);
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  if (days < 30) return `${days}d ago`;
-  return new Date(then).toLocaleDateString();
+/**
+ * Parse an ISO timestamp from the server. Naive timestamps (no timezone
+ * suffix) are treated as UTC by appending "Z".
+ */
+export function parseServerDate(value: string): Date {
+  const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value);
+  return new Date(hasTimezone ? value : `${value}Z`);
 }
 
-export const statusStyles: Record<JobStatus, string> = {
-  queued: "bg-neutral-500/15 text-neutral-300 border-neutral-500/30",
-  running: "bg-ig-blue/15 text-ig-blue border-ig-blue/40",
-  completed: "bg-emerald-500/15 text-emerald-400 border-emerald-500/40",
-  failed: "bg-red-500/15 text-red-400 border-red-500/40",
-  cancelled: "bg-neutral-500/15 text-neutral-400 border-neutral-500/30",
-  rate_limited: "bg-amber-500/15 text-amber-400 border-amber-500/40",
-};
+export function timeAgo(value: string | null): string {
+  if (!value) return "—";
+  const then = parseServerDate(value);
+  if (Number.isNaN(then.getTime())) return "—";
+  const seconds = Math.round((Date.now() - then.getTime()) / 1000);
+  if (seconds < 5) return "just now";
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return then.toLocaleDateString();
+}
 
-export const statusLabel: Record<JobStatus, string> = {
-  queued: "Queued",
-  running: "Running",
-  completed: "Completed",
-  failed: "Failed",
-  cancelled: "Cancelled",
-  rate_limited: "Rate limited",
-};
+export function formatDateTime(value: string | null): string {
+  if (!value) return "—";
+  const date = parseServerDate(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+}
+
+/** Last path segment of a file path (handles both / and \ separators). */
+export function baseName(path: string): string {
+  const parts = path.split(/[\\/]/);
+  return parts[parts.length - 1] || "media";
+}
