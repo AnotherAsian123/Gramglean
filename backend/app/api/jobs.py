@@ -10,14 +10,9 @@ from sqlmodel import Session, select
 from ..core.logging_setup import job_error_log_path, job_log_path
 from ..db.database import get_session
 from ..db.models import Job, Link
-from ..insta.urls import InvalidLink, shortcode_from_url
 from ..jobs.manager import manager
 
 router = APIRouter()
-
-
-class JobCreate(BaseModel):
-    links: list[str]
 
 
 class RejectedLink(BaseModel):
@@ -36,47 +31,6 @@ def _tail(path: Path, limit: int) -> list[str]:
         return []
     with open(path, "r", encoding="utf-8", errors="replace") as fh:
         return list(deque(fh, maxlen=limit))
-
-
-@router.post("/jobs", status_code=201, response_model=JobWithLinks)
-def create_job(payload: JobCreate, session: Session = Depends(get_session)) -> JobWithLinks:
-    seen: set[str] = set()
-    accepted: list[tuple[str, str]] = []  # (url, shortcode)
-    rejected: list[RejectedLink] = []
-    for raw in payload.links:
-        url = raw.strip()
-        if not url:
-            continue
-        try:
-            shortcode = shortcode_from_url(url)
-        except InvalidLink as exc:
-            rejected.append(RejectedLink(url=url, reason=str(exc)))
-            continue
-        if shortcode in seen:
-            rejected.append(RejectedLink(url=url, reason="Duplicate of another link in this batch."))
-            continue
-        seen.add(shortcode)
-        accepted.append((url, shortcode))
-
-    if not accepted:
-        detail = "No valid Instagram post links found."
-        if rejected:
-            detail += " " + "; ".join(r.reason for r in rejected[:3])
-        raise HTTPException(status_code=400, detail=detail)
-
-    job = Job(link_count=len(accepted))
-    session.add(job)
-    session.commit()
-    session.refresh(job)
-    links = [Link(job_id=job.id, url=url, shortcode=code) for url, code in accepted]
-    for link in links:
-        session.add(link)
-    session.commit()
-    for link in links:
-        session.refresh(link)
-
-    manager.submit(job.id)
-    return JobWithLinks(job=job, links=links, rejected=rejected)
 
 
 @router.get("/jobs", response_model=list[Job])

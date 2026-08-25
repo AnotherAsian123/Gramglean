@@ -9,7 +9,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from .api import cookies, health, jobs, media, settings, ws
+from .api import cookies, health, jobs, media, queue, settings, ws
 from .core import config
 from .core.logging_setup import prune_old_job_logs, setup_logging
 from .db.database import init_db
@@ -45,6 +45,7 @@ if config.DEV_CORS:
 
 app.include_router(health.router, prefix="/api")
 app.include_router(jobs.router, prefix="/api")
+app.include_router(queue.router, prefix="/api")
 app.include_router(media.router, prefix="/api")
 app.include_router(cookies.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")

@@ -44,6 +44,15 @@ class Link(SQLModel, table=True):
     error: Optional[str] = None  # friendly summary shown in the UI
 
 
+class QueueItem(SQLModel, table=True):
+    """A link waiting in the download queue. Starting the queue turns all
+    items into one Job and empties the queue."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    url: str
+    shortcode: str = Field(unique=True)
+    added_at: datetime = Field(default_factory=utcnow)
+
+
 class Media(SQLModel, table=True):
     __table_args__ = (
         UniqueConstraint("shortcode", "child_index", name="uq_media"),

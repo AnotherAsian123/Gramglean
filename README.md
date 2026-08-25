@@ -6,9 +6,9 @@
 
 Paste Instagram links, glean every image. **Gramglean** is a self-hosted
 Instagram downloader that runs as a single Docker container on Unraid (or
-anywhere Docker runs). Paste one or more post/reel links, hit **Download**,
-and it archives the full-resolution media into a local folder — with a sleek
-web UI and a built-in gallery.
+anywhere Docker runs). Paste post/reel links to build a queue, manage it, and
+hit **Download** when you're ready — the full-resolution media is archived
+into a local folder, with a sleek web UI and a built-in gallery.
 
 > ⚠️ **Read before using.** Automated scraping violates Instagram's Terms of
 > Service and can get the account whose cookies you use **temporarily locked
@@ -21,6 +21,8 @@ web UI and a built-in gallery.
 ## Features
 
 - 🔗 **Link in, images out** — paste any number of post/reel links, one per line.
+- 📋 **Manual queue** — links collect in a queue you can review, prune or clear;
+  nothing downloads until you press Download.
 - 🎠 **Complete carousels, guaranteed.** Instagram's web player only keeps ~3
   carousel slides in the DOM at a time, so HTML scrapers silently miss most of
   a large post. Gramglean never reads the rendered page: it pulls the post's

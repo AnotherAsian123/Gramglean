@@ -84,9 +84,15 @@ export interface RejectedLink {
   reason: string;
 }
 
-export interface CreateJobResponse {
-  job: Job;
-  links: Link[];
+export interface QueueItem {
+  id: number;
+  url: string;
+  shortcode: string;
+  added_at: string;
+}
+
+export interface QueueAddResult {
+  added: QueueItem[];
   rejected: RejectedLink[];
 }
 
@@ -130,12 +136,21 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  createJob: (links: string[]) =>
-    request<CreateJobResponse>("/api/jobs", {
+  getQueue: () => request<QueueItem[]>("/api/queue"),
+
+  addToQueue: (links: string[]) =>
+    request<QueueAddResult>("/api/queue", {
       method: "POST",
       headers: JSON_HEADERS,
       body: JSON.stringify({ links }),
     }),
+
+  removeQueueItem: (id: number) =>
+    request<{ ok: boolean }>(`/api/queue/${id}`, { method: "DELETE" }),
+
+  clearQueue: () => request<{ ok: boolean }>("/api/queue", { method: "DELETE" }),
+
+  startQueue: () => request<JobDetail>("/api/queue/start", { method: "POST" }),
 
   listJobs: (limit = 20) => request<Job[]>(`/api/jobs?limit=${limit}`),
 

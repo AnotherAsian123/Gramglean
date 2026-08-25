@@ -95,13 +95,12 @@ export default function Layout({ children }: { children: ReactNode }) {
   );
 }
 
-/** Standard page wrapper providing the route enter/exit transition. */
+/** Standard page wrapper providing the route enter transition. */
 export function Page({ children }: { children: ReactNode }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -6 }}
       transition={{ duration: 0.18, ease: "easeOut" }}
     >
       {children}
