@@ -43,8 +43,11 @@ into a local folder, with a sleek web UI and a built-in gallery.
   automatically after `LOG_RETENTION_DAYS`.
 - 🔐 **Optional at-rest cookie encryption** (AES-256-GCM); decrypted cookies
   never touch disk.
-- 🗂 **Metadata preserved** — JSON sidecar per file, caption, and the original
-  post date as the file's modification time.
+- 🗂 **Metadata embedded** — caption, username and post date are written
+  losslessly into each JPEG's EXIF (DateTimeOriginal/Artist/ImageDescription,
+  plus the full JSON payload in UserComment), so photo apps like Immich or
+  PhotoPrism index them natively. Videos and non-JPEGs get a JSON sidecar.
+  The original post date is also set as the file's modification time.
 - 🖼 **Built-in gallery** with lightbox, keyboard navigation, and seekable
   video playback.
 
@@ -154,9 +157,10 @@ can no longer be decrypted and will be flagged invalid — just re-upload them.
 
 /downloads
   <username>/
-    20260824_<shortcode>.jpg          first carousel item
+    20260824_<shortcode>.jpg          first carousel item (metadata in EXIF)
     20260824_<shortcode>_01.jpg       second item, and so on
-    20260824_<shortcode>.jpg.json     metadata sidecar
+    20260824_<shortcode>.mp4          videos keep a sidecar:
+    20260824_<shortcode>.mp4.json     metadata sidecar (videos/non-JPEG only)
 ```
 
 Each file's modification time is set to the original Instagram post date.

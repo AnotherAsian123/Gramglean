@@ -33,6 +33,7 @@ from ..insta import client as ig
 from ..insta import cookies as cookiestore
 from .broker import broker
 from .errors import summarise_error, write_failure_detail
+from .metadata import embed_exif, metadata_payload
 
 _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".heic"}
 _VIDEO_EXTS = {".mp4", ".mov", ".webm"}
@@ -287,10 +288,11 @@ class JobRunner:
             self._record_failure(task, last_exc or RuntimeError("download failed"))
             return False
 
+        # Metadata first (embedding rewrites the file), then the mtime.
+        self._save_metadata(target, info, item)
         if info.taken_at is not None:
             ts = info.taken_at.replace(tzinfo=timezone.utc).timestamp()
             os.utime(target, (ts, ts))
-        self._write_sidecar(target, info, item)
         self._record_media(target, info, item)
         return True
 
@@ -325,23 +327,26 @@ class JobRunner:
         suffix = f"_{item.index:02d}" if item.index else ""
         return config.DOWNLOAD_DIR / username / f"{date}_{info.shortcode}{suffix}{ext}"
 
+    def _save_metadata(self, target: Path, info: ig.PostInfo, item: ig.PostItem) -> None:
+        """Embed metadata into JPEGs (lossless EXIF splice); fall back to a
+        .json sidecar for videos and non-JPEG files."""
+        if target.suffix.lower() in (".jpg", ".jpeg"):
+            try:
+                embed_exif(target, info, item)
+                return
+            except Exception as exc:
+                self._log.warning(
+                    "Could not embed EXIF in %s (%s); writing sidecar instead",
+                    target.name, exc,
+                )
+        self._write_sidecar(target, info, item)
+
     def _write_sidecar(self, target: Path, info: ig.PostInfo, item: ig.PostItem) -> None:
         import json
 
-        sidecar = {
-            "shortcode": info.shortcode,
-            "child_index": item.index,
-            "username": info.username,
-            "caption": info.caption,
-            "taken_at": info.taken_at.isoformat() + "Z" if info.taken_at else None,
-            "media_type": item.media_type,
-            "width": item.width,
-            "height": item.height,
-            "source_url": f"https://www.instagram.com/p/{info.shortcode}/",
-        }
         try:
             with open(str(target) + ".json", "w", encoding="utf-8") as fh:
-                json.dump(sidecar, fh, ensure_ascii=False, indent=2)
+                json.dump(metadata_payload(info, item), fh, ensure_ascii=False, indent=2)
         except OSError as exc:
             self._log.warning("Could not write sidecar for %s: %s", target.name, exc)
 
