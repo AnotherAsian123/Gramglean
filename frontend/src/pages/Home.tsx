@@ -174,7 +174,7 @@ export default function Home() {
               placeholder={"Paste Instagram links (one per line)\nhttps://www.instagram.com/p/…"}
               className="w-full resize-y rounded-2xl border border-mauve-500/60 bg-carbon-700/80 px-4 py-3.5 font-mono text-sm text-thistle-200 placeholder:text-thistle-600 shadow-inner transition-colors focus:border-rose-400/70"
             />
-            <div className="mt-4 flex justify-center">
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
               <button
                 type="submit"
                 disabled={adding}
@@ -186,6 +186,23 @@ export default function Home() {
                   <ListPlus className="h-4 w-4" aria-hidden="true" />
                 )}
                 {adding ? "Adding…" : "Add to queue"}
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleStart()}
+                disabled={starting || queue.length === 0}
+                className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-rose-500 to-mahogany-500 px-6 py-2.5 text-sm font-semibold text-thistle-100 shadow-glow transition-transform hover:scale-[1.02] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {starting ? (
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                ) : (
+                  <Download className="h-4 w-4" aria-hidden="true" />
+                )}
+                {starting
+                  ? "Starting…"
+                  : queue.length > 0
+                    ? `Download ${queue.length} ${queue.length === 1 ? "link" : "links"}`
+                    : "Download"}
               </button>
             </div>
           </form>
@@ -243,8 +260,8 @@ export default function Home() {
             The queue is empty — add some links above.
           </p>
         ) : (
-          <>
-            <ul className="overflow-hidden rounded-xl border border-mauve-800/70 bg-carbon-700/50">
+          <div className="overflow-hidden rounded-xl border border-mauve-800/70 bg-carbon-700/50">
+            <ul className="max-h-80 overflow-y-auto">
               <AnimatePresence initial={false}>
                 {queue.map((item, index) => (
                   <motion.li
@@ -278,25 +295,7 @@ export default function Home() {
                 ))}
               </AnimatePresence>
             </ul>
-
-            <div className="mt-5 flex justify-center">
-              <button
-                type="button"
-                onClick={() => void handleStart()}
-                disabled={starting}
-                className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-rose-500 to-mahogany-500 px-8 py-3 text-base font-semibold text-thistle-100 shadow-glow transition-transform hover:scale-[1.02] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {starting ? (
-                  <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
-                ) : (
-                  <Download className="h-5 w-5" aria-hidden="true" />
-                )}
-                {starting
-                  ? "Starting…"
-                  : `Download ${queue.length} ${queue.length === 1 ? "link" : "links"}`}
-              </button>
-            </div>
-          </>
+          </div>
         )}
       </section>
 
